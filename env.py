@@ -71,7 +71,7 @@ class QuadState:
         self.p = torch.zeros(3)
         self.q = torch.zeros(4)
         self.q[0] = 1
-        self.v = torch.zeros(3)
+        self.v = torch.randn(3) * 0.1
         self.w = torch.zeros(3)
         self.a = torch.zeros(3)
         self.g = torch.tensor([0, 0, -9.80665])
@@ -102,22 +102,23 @@ class Env:
         self.scene.add_node(self.quad_node)
         self.scene.add(pyrender.DirectionalLight((255, 255, 255), 1))
 
-        torch.manual_seed(2234)
+        fuze_trimesh = trimesh.load('models/ball.obj')
+        mesh = pyrender.Mesh.from_trimesh(fuze_trimesh)
+        self.obstacles_nodes = [self.scene.add(mesh) for _ in range(25)]
+
         self.obstacles = torch.stack([
-            torch.rand(25) * 10 + 2,
+            torch.rand(25) * 12 + 2,
             torch.rand(25) * 10 - 5,
             torch.rand(25) * 3 - 1
         ], 1)
-        fuze_trimesh = trimesh.load('models/ball.obj')
-        mesh = pyrender.Mesh.from_trimesh(fuze_trimesh)
-        for x, y, z in self.obstacles.tolist():
+        for i, (x, y, z) in enumerate(self.obstacles.tolist()):
             pose = np.array([
                 [1.0, 0.0, 0.0, x],
                 [0.0, 1.0, 0.0, y],
                 [0.0, 0.0, 1.0, z],
                 [0.0, 0.0, 0.0, 1.0],
             ])
-            self.scene.add(mesh, pose=pose)
+            self.scene.set_pose(self.obstacles_nodes[i], pose)
 
         ground = trimesh.Trimesh([[-10, -10, -1], [10, -10, -1], [10, 10, -1], [-10, 10, -1]], faces=[[0, 1, 2, 3]])
         mesh = pyrender.Mesh.from_trimesh(ground)
@@ -125,6 +126,19 @@ class Env:
     
     def reset(self):
         self.quad = QuadState()
+        self.obstacles = torch.stack([
+            torch.rand(25) * 12 + 2,
+            torch.rand(25) * 10 - 5,
+            torch.rand(25) * 3 - 1
+        ], 1)
+        for i, (x, y, z) in enumerate(self.obstacles.tolist()):
+            pose = np.array([
+                [1.0, 0.0, 0.0, x],
+                [0.0, 1.0, 0.0, y],
+                [0.0, 0.0, 1.0, z],
+                [0.0, 0.0, 0.0, 1.0],
+            ])
+            self.scene.set_pose(self.obstacles_nodes[i], pose)
 
     def render(self):
         rot_mat = quaternion_to_matrix(self.quad.q).numpy()
@@ -138,7 +152,6 @@ class Env:
         plt.show()
 
     def step(self, action, ctl_dt=1/15):
-        action = torch.tanh(action)
         w = quaternion_to_matrix(self.quad.q) @ action[:3]
         self.quad.run(w, action[3] + 1, ctl_dt)
 
