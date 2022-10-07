@@ -14,16 +14,16 @@ inline void set_camera(
 {
     double two_s = 2.0 / (r * r + i * i + j * j + k * k);
 
-        double up_x = two_s * (i * k + j * r);
-        double up_y = two_s * (j * k - i * r);
-        double up_z = 1 - two_s * (i * i + j * j);
-        double forward_x = 1 - two_s * (j * j + k * k);
-        double forward_y = two_s * (i * j + k * r);
-        double forward_z = two_s * (i * k - j * r);
+    double up_x = two_s * (i * k + j * r);
+    double up_y = two_s * (j * k - i * r);
+    double up_z = 1 - two_s * (i * i + j * j);
+    double forward_x = 1 - two_s * (j * j + k * k);
+    double forward_y = two_s * (i * j + k * r);
+    double forward_z = two_s * (i * k - j * r);
 
-        gluLookAt(x, y, z,
-                  x + forward_x, y + forward_y, z + forward_z,
-                  up_x, up_y, up_z);
+    gluLookAt(x, y, z,
+              x + forward_x, y + forward_y, z + forward_z,
+              up_x, up_y, up_z);
 }
 
 class Env
@@ -38,14 +38,37 @@ public:
     {
         int argc = 0;
         glutInit(&argc, nullptr);
-        glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+        glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
         glutInitWindowSize(160, 90);
-        glutCreateWindow("Project 3");
-        glEnable(GL_DEPTH_TEST);
+        glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glEnable(GL_BLEND);
+
+        //材质反光性设置
+        GLfloat mat_specular[] = {1.0, 1.0, 1.0, 1.0}; //镜面反射参数
+        GLfloat mat_shininess[] = {50.0};              //高光指数
+        GLfloat light_position[] = {-1.0, -1.0, 5.0, 0.0};
+        GLfloat white_light[] = {1.0, 1.0, 1.0, 1.0};         //灯位置(1,1,1), 最后1-开关
+        GLfloat Light_Model_Ambient[] = {0.5, 0.5, 0.5, 1.0}; //环境光参数
+
+        glClearColor(0.0, 0.0, 0.0, 0.0); //背景色
+        glShadeModel(GL_SMOOTH);          //多变性填充模式
+
+        //材质属性
+        glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
+        glMaterialfv(GL_FRONT, GL_SHININESS, mat_shininess);
+
+        //灯光设置
+        glLightfv(GL_LIGHT0, GL_POSITION, light_position);
+        glLightfv(GL_LIGHT0, GL_DIFFUSE, white_light);               //散射光属性
+        glLightfv(GL_LIGHT0, GL_SPECULAR, white_light);              //镜面反射光
+        glLightModelfv(GL_LIGHT_MODEL_AMBIENT, Light_Model_Ambient); //环境光参数
+
+        glEnable(GL_LIGHTING);   //开关:使用光
+        glEnable(GL_LIGHT0);     //打开0#灯
+        glEnable(GL_DEPTH_TEST); //打开深度测试
     };
 
     void set_obstacles(py::array_t<float_t> obstacles)
@@ -66,13 +89,20 @@ public:
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         glViewport(0, 0, 160, 90);
-        gluPerspective(180*0.35, 16. / 9, 0.01f, 10.0f);
+        gluPerspective(180 * 0.35, 16. / 9, 0.01f, 10.0f);
         set_camera(x, y, z, r, i, j, k);
 
         for (auto &ball : balls)
         {
             ball.draw();
         }
+
+        glBegin(GL_QUADS);
+        glVertex3f(-10, -10, -1);
+        glVertex3f(10, -10, -1);
+        glVertex3f(10, 10, -1);
+        glVertex3f(-10, 10, -1);
+        glEnd();
 
         glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);

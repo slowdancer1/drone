@@ -38,8 +38,9 @@ public:
     {
         glPushMatrix();
         glTranslated(x, y, z);
-        glColor4f(0.9, 0.9, 0.9, 1);
-        shape.draw();
+        // glColor3f(0.5, 0.5, 0.5);
+        // shape.draw();
+        glutSolidSphere(1, 10, 8);
         glPopMatrix();
     }
 };

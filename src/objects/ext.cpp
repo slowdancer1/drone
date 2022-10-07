@@ -128,7 +128,7 @@ void ExtShape::draw() {
         mtl[2] = (mtlSets[materialIndex])[2];
 
         // Draw
-        glColor4f(mtl[0], mtl[1], mtl[2], 1.0f);
+        // glColor4f(mtl[0], mtl[1], mtl[2], 1.0f);
         glVertex3f(SV1[0], SV1[1], SV1[2]);
         glVertex3f(SV3[0], SV3[1], SV3[2]);
         glVertex3f(SV2[0], SV2[1], SV2[2]);

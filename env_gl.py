@@ -1,16 +1,79 @@
 from time import time
 from matplotlib import pyplot as plt
 import numpy as np
-import pyrender
 import torch
-from scipy.spatial.transform import Rotation
-import trimesh
+import quadsim
 
-from pytorch3d.transforms.rotation_conversions import (
-    quaternion_raw_multiply,
-    quaternion_to_matrix,
-    axis_angle_to_quaternion,
-)
+
+class EnvRenderer(quadsim.Env):
+    def render(self, x, y, z, r, i, j, k):
+        z_near = 0.01
+        z_far = 10.0
+        color, depth = super().render(x, y, z, r, i, j, k)
+        color = np.flip(color, 0)
+        depth = np.flip(2 * depth - 1, 0)
+        depth = (2.0 * z_near * z_far) / (z_far + z_near - depth * (z_far - z_near))
+        return color, depth
+
+
+def axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotations given as axis/angle to quaternions.
+    Args:
+        axis_angle: Rotations given as a vector in axis angle form,
+            as a tensor of shape (..., 3), where the magnitude is
+            the angle turned anticlockwise in radians around the
+            vector's direction.
+    Returns:
+        quaternions with real part first, as tensor of shape (..., 4).
+    """
+    angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True)
+    half_angles = angles * 0.5
+    eps = 1e-6
+    small_angles = angles.abs() < eps
+    sin_half_angles_over_angles = torch.empty_like(angles)
+    sin_half_angles_over_angles[~small_angles] = (
+        torch.sin(half_angles[~small_angles]) / angles[~small_angles]
+    )
+    # for x small, sin(x/2) is about x/2 - (x/2)^3/6
+    # so sin(x/2)/x is about 1/2 - (x*x)/48
+    sin_half_angles_over_angles[small_angles] = (
+        0.5 - (angles[small_angles] * angles[small_angles]) / 48
+    )
+    quaternions = torch.cat(
+        [torch.cos(half_angles), axis_angle * sin_half_angles_over_angles], dim=-1
+    )
+    return quaternions
+
+
+def quaternion_to_matrix(quaternions: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotations given as quaternions to rotation matrices.
+    Args:
+        quaternions: quaternions with real part first,
+            as tensor of shape (..., 4).
+    Returns:
+        Rotation matrices as tensor of shape (..., 3, 3).
+    """
+    r, i, j, k = torch.unbind(quaternions, -1)
+    # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
+    two_s = 2.0 / (quaternions * quaternions).sum(-1)
+
+    o = torch.stack(
+        (
+            1 - two_s * (j * j + k * k),
+            two_s * (i * j - k * r),
+            two_s * (i * k + j * r),
+            two_s * (i * j + k * r),
+            1 - two_s * (i * i + k * k),
+            two_s * (j * k - i * r),
+            two_s * (i * k - j * r),
+            two_s * (j * k + i * r),
+            1 - two_s * (i * i + j * j),
+        ),
+        -1,
+    )
+    return o.reshape(quaternions.shape[:-1] + (3, 3))
 
 
 def quaternion_to_up(quaternions):
@@ -42,7 +105,7 @@ camera_pose = np.array([
 
 
 @torch.jit.script
-def run(self_p, self_v, self_q, self_w, g, w, c, ctl_dt=1/15, rate_ctl_delay=0.1):
+def run(self_p, self_v, self_q, self_w, g, w, c, ctl_dt:float=1/15, rate_ctl_delay:float=0.1):
     alpha = rate_ctl_delay ** (ctl_dt / rate_ctl_delay)
 
     half_alpha = rate_ctl_delay ** (ctl_dt / 2 / rate_ctl_delay)
@@ -94,52 +157,24 @@ class QuadState:
 
 class Env:
     def __init__(self, device) -> None:
-        self.scene = pyrender.Scene(ambient_light=(1, 1, 1))
-        self.r = pyrender.OffscreenRenderer(160, 90)
-
-        camera = pyrender.PerspectiveCamera(yfov=np.pi * 0.35)
-        camera_node = pyrender.Node(camera=camera, matrix=camera_pose)
-        self.quad_node = pyrender.Node(children=[camera_node])
-        self.scene.add_node(self.quad_node)
-        self.scene.add(pyrender.DirectionalLight((255, 255, 255), 1))
-
-        fuze_trimesh = trimesh.load('models/ball.obj')
-        mesh = pyrender.Mesh.from_trimesh(fuze_trimesh)
-        self.obstacles_nodes = [self.scene.add(mesh) for _ in range(25)]
-
-        ground = trimesh.Trimesh([[-10, -10, -1], [10, -10, -1], [10, 10, -1], [-10, 10, -1]], faces=[[0, 1, 2, 3]])
-        mesh = pyrender.Mesh.from_trimesh(ground)
-        self.scene.add(mesh)
         self.device = device
+        self.r = EnvRenderer()
         self.reset()
 
     def reset(self):
         self.quad = QuadState(self.device)
         self.obstacles = torch.stack([
-            torch.rand(25, device=self.device) * 12 + 2,
-            torch.rand(25, device=self.device) * 10 - 5,
-            torch.rand(25, device=self.device) * 3 - 1
+            torch.rand(20, device=self.device) * 30 + 2,
+            torch.rand(20, device=self.device) * 6 - 3,
+            torch.rand(20, device=self.device) * 4 - 1
         ], 1)
-        for i, (x, y, z) in enumerate(self.obstacles.tolist()):
-            pose = np.array([
-                [1.0, 0.0, 0.0, x],
-                [0.0, 1.0, 0.0, y],
-                [0.0, 0.0, 1.0, z],
-                [0.0, 0.0, 0.0, 1.0],
-            ])
-            self.scene.set_pose(self.obstacles_nodes[i], pose)
+        self.r.set_obstacles(self.obstacles.cpu().numpy())
 
     @torch.no_grad()
     def render(self):
-        rot_mat = quaternion_to_matrix(self.quad.q).cpu().numpy()
-        quad_mat = np.hstack([rot_mat, self.quad.p.cpu().numpy()[:, None]])
-        quad_mat = np.vstack([quad_mat, [0, 0, 0, 1]])
-        self.scene.set_pose(self.quad_node, quad_mat)
-        # depth = self.r.render(self.scene, flags=pyrender.RenderFlags.DEPTH_ONLY)
-        color, depth = self.r.render(self.scene)
+        state = torch.cat([self.quad.p, self.quad.q]).tolist()
+        color, depth = self.r.render(*state)
         return color, depth
-        plt.imshow(1 / depth)
-        plt.show()
 
     def step(self, action, ctl_dt=1/15):
         w = quaternion_to_matrix(self.quad.q) @ action[:3]
@@ -150,6 +185,8 @@ class Env:
 def main():
     env = Env('cpu')
     color, depth = env.render()
+    plt.imshow(color)
+    plt.show()
     t0 = time()
     for _ in range(250):
         # w = torch.tensor([0., 0, 0, 0])

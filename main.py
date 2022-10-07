@@ -1,9 +1,7 @@
-from cmath import isnan
 import os
-from turtle import forward
 from matplotlib import pyplot as plt
 import numpy as np
-from env import Env, quaternion_to_forward
+from env_gl import Env, quaternion_to_forward
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -69,8 +67,8 @@ for i in range(10000):
         color, depth = env.render()
         depth = np.nan_to_num(4 / depth, False, 0, 0, 0)
         x = torch.clamp(torch.as_tensor(depth[None, None]) - 1, -1, 4)
-        if t % 5 == 0:
-            vid.append(color)
+        if (i + 1) % 100 == 0 and t % 5 == 0:
+            vid.append(color.copy())
         act, h = model(x.cuda(), torch.cat([env.quad.v, env.quad.w])[None].cuda(), h)
         act = act[0].cpu()
         env.step(act, ctl_dt)
@@ -94,9 +92,8 @@ for i in range(10000):
     act_history = torch.stack(act_history)
 
     v_target = torch.zeros_like(v_history)
-    # v_target[:, 0] = 1
-    # loss_v_error = F.mse_loss(v_history, v_target, reduction='none').sum(-1).mean()
-    loss_v_error = (5 - v_history[:, 0]).relu().div(5).mean()
+    v_target[:, 0] = 2
+    loss_v_error = F.mse_loss(v_history, v_target, reduction='none').sum(-1).mean()
     loss_p_error = F.mse_loss(p_history[:, 1:], v_target[:, 1:], reduction='none').sum(-1).mean()
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
@@ -112,7 +109,7 @@ for i in range(10000):
 
     loss_obj_avoidance /= t + 1
 
-    loss = loss_v_error + 0.01 * loss_p_error + 0.1 * loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance + loss_look_ahead
+    loss = loss_v_error + 0.1 * loss_p_error + 0.1 * loss_d_ctrl + 0.01 * loss_acc + 10 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(loss.item())

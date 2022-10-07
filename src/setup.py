@@ -15,4 +15,7 @@ setup(name='quadsim',
       author_email='1328410180@qq.com',
       description="QuadSim",
       long_description='',
+      packages=['quadsim'],
+      package_dir={'quadsim': './quadsim'},
+      package_data={'quadsim': ['./quadsim/*.so']},
       ext_modules=ext_modules)
