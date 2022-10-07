@@ -1,3 +1,6 @@
 log.png
 runs/
 __pycache__/
+src/build/
+.vscode/
+*.so
