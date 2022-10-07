@@ -16,7 +16,7 @@ include_directories(${CMAKE_SOURCE_DIR} ${OPENGL_INCLUDE_DIRS})
 
 add_subdirectory(pybind11)
 
-pybind11_add_module(quadsim quadsim.cpp)
+pybind11_add_module(quadsim quadsim.cpp objects/ext.cpp)
 target_link_libraries(quadsim 
   PRIVATE ${GLUT_LIBRARY} ${OPENGL_LIBRARY}
 )

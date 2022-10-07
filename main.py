@@ -1,4 +1,5 @@
 from cmath import isnan
+import os
 from turtle import forward
 from matplotlib import pyplot as plt
 import numpy as np
@@ -9,6 +10,12 @@ from torch.nn import functional as F
 from torch.optim import AdamW
 from tensorboardX import SummaryWriter
 
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--resume')
+args = parser.parse_args()
+
 
 class Model(nn.Module):
     def __init__(self) -> None:
@@ -18,11 +25,13 @@ class Model(nn.Module):
             nn.Conv2d(3, 64, 7, 2), nn.ReLU(),
             nn.Conv2d(64, 256, 3, 2), nn.ReLU(),
         )
+        self.v_proj = nn.Linear(6, 256)
         self.gru = nn.GRUCell(256, 256)
         self.fc = nn.Linear(256, 4, bias=False)
-        nn.init.constant_(self.fc.weight, 0)
-
-    def forward(self, x: torch.Tensor, hx=None):
+        self.fc.weight.data.mul_(0.)
+        self.history = []
+    
+    def forward(self, x: torch.Tensor, v, hx=None):
         x = F.max_pool2d(x, 2, 2)
         n, c, h, w = x.shape
         pos = torch.stack(torch.meshgrid(
@@ -31,19 +40,23 @@ class Model(nn.Module):
         ), 0)[None].expand(n, 2, h, w)
         x = torch.cat([x, pos], 1)
         x = self.stem(x)
-        hx = self.gru(x[0].flatten(1).t(), hx)
-        return self.fc(hx.mean(0)[None]).tanh(), hx
+        x = x.mean((2, 3)) + self.v_proj(v).relu()
+        hx = self.gru(x, hx)
+        return self.fc(x).tanh(), hx
 
 # model = Model()
 model = Model().cuda()
-env = Env()
-optim = AdamW(model.parameters(), 1e-5)
+if args.resume:
+    model.load_state_dict(torch.load(args.resume, map_location='cuda'))
+env = Env('cpu')
+optim = AdamW(model.parameters(), 1e-4)
 
 ctl_dt = 1 / 15
 
 writer = SummaryWriter(flush_secs=1)
+p_ctl_pts = torch.linspace(0, ctl_dt * 2, 16, device='cpu')[:, None]
 
-for i in range(1000):
+for i in range(10000):
     env.reset()
     p_history = []
     q_history = []
@@ -52,20 +65,21 @@ for i in range(1000):
     vid = []
     h = None
     loss_obj_avoidance = 0
-    for t in range(min(250, i + 2)):
-        with torch.no_grad():
-            color, depth = env.render()
-            depth = np.nan_to_num(1 / depth, False, 0, 0, 0)
-            x = torch.clamp(torch.as_tensor(depth[None, None]) - 1, -1, 5)
+    for t in range(250):
+        color, depth = env.render()
+        depth = np.nan_to_num(4 / depth, False, 0, 0, 0)
+        x = torch.clamp(torch.as_tensor(depth[None, None]) - 1, -1, 4)
         if t % 5 == 0:
             vid.append(color)
-        act, h = model(x.cuda(), h)
-        env.step(act[0].cpu(), ctl_dt)
+        act, h = model(x.cuda(), torch.cat([env.quad.v, env.quad.w])[None].cuda(), h)
+        act = act[0].cpu()
+        env.step(act, ctl_dt)
 
-        p = env.quad.p + env.quad.v * torch.linspace(0, ctl_dt * 2, 16)[:, None]
+        p = env.quad.p + env.quad.v * p_ctl_pts
         distance = (p[:, None] - env.obstacles).pow(2).sum(-1).sqrt().add(-1)
         distance = torch.cat([distance, p[:, -1:] + 1], -1)
-        loss_obj_avoidance += (1 - distance.relu()).relu().pow(2).mean()
+        x_l = distance.clamp(0.1, 1)
+        loss_obj_avoidance += (x_l - x_l.log()).mean() - 1
 
         p_history.append(env.quad.p)
         q_history.append(env.quad.q)
@@ -80,11 +94,12 @@ for i in range(1000):
     act_history = torch.stack(act_history)
 
     v_target = torch.zeros_like(v_history)
-    v_target[:, 0] = 1
-    loss_v_error = F.mse_loss(v_history, v_target, reduction='none').sum(-1).mean()
+    # v_target[:, 0] = 1
+    # loss_v_error = F.mse_loss(v_history, v_target, reduction='none').sum(-1).mean()
+    loss_v_error = (5 - v_history[:, 0]).relu().div(5).mean()
     loss_p_error = F.mse_loss(p_history[:, 1:], v_target[:, 1:], reduction='none').sum(-1).mean()
 
-    loss_angular_acc = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
+    loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
     loss_acc = (v_history[1:] - v_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
 
     # distance = (p_history[:, None] - env.obstacles).pow(2).sum(-1).sqrt().add(-1)
@@ -97,7 +112,7 @@ for i in range(1000):
 
     loss_obj_avoidance /= t + 1
 
-    loss = loss_v_error + 0.1 * loss_p_error + 0.01 * loss_angular_acc + 0.001 * loss_acc + 5e2 * loss_obj_avoidance + loss_look_ahead
+    loss = loss_v_error + 0.01 * loss_p_error + 0.1 * loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(loss.item())
@@ -108,7 +123,7 @@ for i in range(1000):
         writer.add_scalar('loss', loss, i)
         writer.add_scalar('loss_v_error', loss_v_error, i)
         writer.add_scalar('loss_p_error', loss_p_error, i)
-        writer.add_scalar('loss_angular_acc', loss_angular_acc, i)
+        writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
         writer.add_scalar('loss_acc', loss_acc, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
         writer.add_scalar('loss_look_ahead', loss_look_ahead, i)
@@ -117,37 +132,10 @@ for i in range(1000):
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=3)
             fig = plt.figure()
+            v_history = v_history.cpu()
             plt.plot(v_history[:, 0], label='x')
             plt.plot(v_history[:, 1], label='y')
             plt.plot(v_history[:, 2], label='z')
             plt.legend()
             writer.add_figure('v', fig, i)
-
-with torch.no_grad():
-    env.reset()
-    p_history = []
-    v_history = []
-    vid = []
-    h = None
-    for t in range(250):
-        color, depth = env.render()
-        depth = np.nan_to_num(1 / depth, False, 0, 0, 0)
-        x = torch.clamp(torch.as_tensor(depth[None, None]) - 1, -1, 5)
-        act, h = model(x.cuda(), h)
-        env.step(act[0].cpu(), ctl_dt)
-        if t % 5 == 0:
-            color, depth = env.render()
-            vid.append(color)
-        p_history.append(env.quad.p)
-        v_history.append(env.quad.v)
-    p_history = torch.stack(p_history)
-    v_history = torch.stack(v_history)
-
-    vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
-    writer.add_video('color', vid, fps=3)
-    fig = plt.figure()
-    plt.plot(v_history[:, 0], label='x')
-    plt.plot(v_history[:, 1], label='y')
-    plt.plot(v_history[:, 2], label='z')
-    plt.legend()
-    writer.add_figure('v', fig)
+            torch.save(model.state_dict(), os.path.join(writer.logdir, f'checkpoint{i//100:04d}.pth'))
