@@ -105,29 +105,26 @@ camera_pose = np.array([
 
 
 @torch.jit.script
-def run(self_p, self_v, self_q, self_w, g, w, c, ctl_dt:float=1/15, rate_ctl_delay:float=0.1):
+def run(self_p, self_v, self_q, self_w, g, action, ctl_dt:float=1/15, rate_ctl_delay:float=0.1):
+    alpha = 0.6 ** ctl_dt
+    self_p = alpha * self_p + (1 - alpha) * self_p.detach()
+    self_v = alpha * self_v + (1 - alpha) * self_v.detach()
+    self_q = alpha * self_q + (1 - alpha) * self_q.detach()
+    self_w = alpha * self_w + (1 - alpha) * self_w.detach()
+
+    w = action[:, :3]
+    c = action[:, 3:] + 1
+
     alpha = rate_ctl_delay ** (ctl_dt / rate_ctl_delay)
 
-    half_alpha = rate_ctl_delay ** (ctl_dt / 2 / rate_ctl_delay)
-    half_w = w * (1 - half_alpha) + self_w * half_alpha
-
-    half_q = axis_angle_to_quaternion(half_w)
-    half_up_vec = quaternion_to_up(half_q)
-    half_a = half_up_vec * c * 9.80665 + g - 0.1 * self_v * torch.norm(self_v, -1)
-    half_v = self_v + half_a * ctl_dt / 2
-
-    self_p = self_p + half_v * ctl_dt
-    self_v = self_v + half_a * ctl_dt
     self_w = w * (1 - alpha) + self_w * alpha
     self_q = axis_angle_to_quaternion(self_w)
+    up_vec = quaternion_to_up(self_q)
+    _a = up_vec * c * 9.80665 + g - 0.1 * self_v * torch.norm(self_v, -1)
+
+    self_v = self_v + _a * ctl_dt
+    self_p = self_p + self_v * ctl_dt
     return self_p, self_v, self_q, self_w
-
-
-def scale_grad(alpha):
-    def forward(x):
-        return x * alpha + (1 - alpha) * x.detach()
-    return forward
-
 batch_size = 16
 class QuadState:
     def __init__(self, device) -> None:
@@ -142,12 +139,9 @@ class QuadState:
 
         self.rate_ctl_delay = 0.2
 
-    def run(self, w, c, ctl_dt=1/15):
-        alpha = 0.6 ** ctl_dt
-        _p, _v, _q, _w = map(scale_grad(alpha), (self.p, self.v, self.q, self.w))
-        # _p, _v, _q, _w = self.p, self.v, self.q, self.w
+    def run(self, action, ctl_dt=1/15):
         self.p, self.v, self.q, self.w = run(
-            _p, _v, _q, _w, self.g, w, c, ctl_dt, self.rate_ctl_delay)
+            self.p, self.v, self.q, self.w, self.g, action, ctl_dt, self.rate_ctl_delay)
 
     def stat(self):
         print("p:", self.p.tolist())
@@ -178,8 +172,7 @@ class Env:
         return color, depth
 
     def step(self, action, ctl_dt=1/15):
-        w = quaternion_to_matrix(self.quad.q) @ action[:, :3, None]
-        self.quad.run(w.squeeze(2), action[:, 3:] + 1, ctl_dt)
+        self.quad.run(action, ctl_dt)
 
 
 @torch.no_grad()
