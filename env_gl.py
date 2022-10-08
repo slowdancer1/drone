@@ -6,12 +6,12 @@ import quadsim
 
 
 class EnvRenderer(quadsim.Env):
-    def render(self, x, y, z, r, i, j, k):
+    def render(self, cameras):
         z_near = 0.01
         z_far = 10.0
-        color, depth = super().render(x, y, z, r, i, j, k)
-        color = np.flip(color, 0)
-        depth = np.flip(2 * depth - 1, 0)
+        color, depth = super().render(cameras)
+        color = np.flip(color, 1)
+        depth = np.flip(2 * depth - 1, 1)
         depth = (2.0 * z_near * z_far) / (z_far + z_near - depth * (z_far - z_near))
         return color, depth
 
@@ -113,7 +113,7 @@ def run(self_p, self_v, self_q, self_w, g, w, c, ctl_dt:float=1/15, rate_ctl_del
 
     half_q = axis_angle_to_quaternion(half_w)
     half_up_vec = quaternion_to_up(half_q)
-    half_a = half_up_vec * c * 9.80665 + g - 0.1 * self_v * torch.norm(self_v)
+    half_a = half_up_vec * c * 9.80665 + g - 0.1 * self_v * torch.norm(self_v, -1)
     half_v = self_v + half_a * ctl_dt / 2
 
     self_p = self_p + half_v * ctl_dt
@@ -128,24 +128,24 @@ def scale_grad(alpha):
         return x * alpha + (1 - alpha) * x.detach()
     return forward
 
-
+batch_size = 16
 class QuadState:
     def __init__(self, device) -> None:
-        self.p = torch.zeros(3, device=device)
-        self.q = torch.zeros(4, device=device)
-        self.q[0] = 1
-        self.v = torch.randn(3, device=device) * 0.1
-        self.v[0] += 1
-        self.w = torch.zeros(3, device=device)
-        self.a = torch.zeros(3, device=device)
+        self.p = torch.zeros((batch_size, 3), device=device)
+        self.q = torch.zeros((batch_size, 4), device=device)
+        self.q[:, 0] = 1
+        self.v = torch.randn((batch_size, 3), device=device) * 0.1
+        self.v[:, 0] += 1
+        self.w = torch.zeros((batch_size, 3), device=device)
+        self.a = torch.zeros((batch_size, 3), device=device)
         self.g = torch.tensor([0, 0, -9.80665], device=device)
 
         self.rate_ctl_delay = 0.2
 
     def run(self, w, c, ctl_dt=1/15):
-        # alpha = 0.9 ** ctl_dt
-        # _p, _v, _q, _w = map(scale_grad(alpha), (self.p, self.v, self.q, self.w))
-        _p, _v, _q, _w = self.p, self.v, self.q, self.w
+        alpha = 0.6 ** ctl_dt
+        _p, _v, _q, _w = map(scale_grad(alpha), (self.p, self.v, self.q, self.w))
+        # _p, _v, _q, _w = self.p, self.v, self.q, self.w
         self.p, self.v, self.q, self.w = run(
             _p, _v, _q, _w, self.g, w, c, ctl_dt, self.rate_ctl_delay)
 
@@ -159,33 +159,35 @@ class QuadState:
 class Env:
     def __init__(self, device) -> None:
         self.device = device
-        self.r = EnvRenderer()
+        self.r = EnvRenderer(batch_size)
         self.reset()
 
     def reset(self):
         self.quad = QuadState(self.device)
         self.obstacles = torch.stack([
-            torch.rand(40, device=self.device) * 30 + 5,
-            torch.rand(40, device=self.device) * 10 - 5,
-            torch.rand(40, device=self.device) * 8 - 2
-        ], 1)
+            torch.rand((batch_size, 40), device=self.device) * 30 + 5,
+            torch.rand((batch_size, 40), device=self.device) * 10 - 5,
+            torch.rand((batch_size, 40), device=self.device) * 8 - 2
+        ], -1)
         self.r.set_obstacles(self.obstacles.cpu().numpy())
 
     @torch.no_grad()
     def render(self):
-        state = torch.cat([self.quad.p, self.quad.q]).tolist()
-        color, depth = self.r.render(*state)
+        state = torch.cat([self.quad.p, self.quad.q], -1)
+        color, depth = self.r.render(state.cpu().numpy())
         return color, depth
 
     def step(self, action, ctl_dt=1/15):
-        w = quaternion_to_matrix(self.quad.q) @ action[:3]
-        self.quad.run(w, action[3] + 1, ctl_dt)
+        w = quaternion_to_matrix(self.quad.q) @ action[:, :3, None]
+        self.quad.run(w.squeeze(2), action[:, 3:] + 1, ctl_dt)
 
 
 @torch.no_grad()
 def main():
     env = Env('cpu')
     color, depth = env.render()
+    plt.imshow(depth)
+    plt.show()
     t0 = time()
     for _ in range(250):
         # w = torch.tensor([0., 0, 0, 0])

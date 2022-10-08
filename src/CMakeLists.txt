@@ -4,7 +4,7 @@ project (quadsim LANGUAGES CXX)
 # set(CMAKE_BUILD_TYPE Debug)
 # set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wno-unused-parameter")
 # set(CMAKE_CXX_FLAGS_DEBUG "-g")
-# set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # Include OpenCV header files
 find_package(OpenGL REQUIRED COMPONENTS OpenGL)

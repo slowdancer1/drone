@@ -37,13 +37,13 @@ class Model(nn.Module):
 model = Model().cuda()
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location='cuda'))
-env = Env('cpu')
-optim = AdamW(model.parameters(), 1e-4)
+env = Env('cuda')
+optim = AdamW(model.parameters(), 5e-4)
 
 ctl_dt = 1 / 15
 
 writer = SummaryWriter(flush_secs=1)
-p_ctl_pts = torch.linspace(0, ctl_dt * 2, 16, device='cpu')[:, None]
+p_ctl_pts = torch.linspace(0, ctl_dt * 2, 16, device='cuda')[:, None, None]
 
 for i in range(10000):
     env.reset()
@@ -56,17 +56,16 @@ for i in range(10000):
     loss_obj_avoidance = 0
     for t in range(250):
         color, depth = env.render()
-        depth = np.nan_to_num(1 / depth, False, 0, 0, 0)
-        x = torch.clamp(torch.as_tensor(depth[None, None]) - 1, -1, 6)
+        depth = torch.as_tensor(depth[:, None]).cuda()
+        x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
-            vid.append(color.copy())
-        act, h = model(x.cuda(), torch.cat([env.quad.v, env.quad.w])[None].cuda(), h)
-        act = act[0].cpu()
+            vid.append(color[0].copy())
+        act, h = model(x, torch.cat([env.quad.v, env.quad.w], -1), h)
         env.step(act, ctl_dt)
 
         p = env.quad.p + env.quad.v * p_ctl_pts
-        distance = (p[:, None] - env.obstacles).pow(2).sum(-1).sqrt().add(-1)
-        distance = torch.cat([distance, p[:, -1:] + 1], -1)
+        distance = (p[:, :, None] - env.obstacles).pow(2).sum(-1).sqrt().add(-1)
+        distance = torch.cat([distance, p[..., -1:] + 1], -1)
         x_l = distance.clamp(0.1, 1)
         loss_obj_avoidance += (x_l - x_l.log()).mean() - 1
 
@@ -74,8 +73,6 @@ for i in range(10000):
         q_history.append(env.quad.q)
         v_history.append(env.quad.v)
         act_history.append(act)
-        if torch.any(distance < 0):
-            break
 
     p_history = torch.stack(p_history)
     q_history = torch.stack(q_history)
@@ -83,9 +80,9 @@ for i in range(10000):
     act_history = torch.stack(act_history)
 
     v_target = torch.zeros_like(v_history)
-    v_target[:, 0] = 2
-    loss_v_error = (2 - v_history[:, 0]).relu().pow(2).mean()
-    loss_p_error = F.mse_loss(p_history[:, 1:], v_target[:, 1:], reduction='none').sum(-1).mean()
+    v_target[..., 0] = 2
+    loss_v_error = (2 - v_history[..., 0]).relu().pow(2).mean()
+    loss_p_error = F.mse_loss(p_history[..., 1:], v_target[..., 1:], reduction='none').sum(-1).mean()
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
     loss_acc = (v_history[1:] - v_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
@@ -121,9 +118,9 @@ for i in range(10000):
             writer.add_video('color', vid, i, fps=5)
             fig = plt.figure()
             v_history = v_history.cpu()
-            plt.plot(v_history[:, 0], label='x')
-            plt.plot(v_history[:, 1], label='y')
-            plt.plot(v_history[:, 2], label='z')
+            plt.plot(v_history[:, 0, 0], label='x')
+            plt.plot(v_history[:, 0, 1], label='y')
+            plt.plot(v_history[:, 0, 2], label='z')
             plt.legend()
             writer.add_figure('v', fig, i)
             torch.save(model.state_dict(), os.path.join(writer.logdir, f'checkpoint{i//100:04d}.pth'))

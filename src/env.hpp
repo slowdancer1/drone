@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <iostream>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <GL/glut.h>
@@ -26,21 +27,24 @@ inline void set_camera(
               up_x, up_y, up_z);
 }
 
+typedef std::vector<Ball> env_t;
+
 class Env
 {
 private:
     py::array_t<uint8_t> rgb_buf;
     py::array_t<float_t> depth_buf;
-    std::vector<Ball> balls;
+    std::vector<env_t> envs;
+    int n_envs;
 
 public:
-    Env() : rgb_buf({90, 160, 3}), depth_buf({90, 160})
+    Env(int n_envs) : n_envs(n_envs), rgb_buf({n_envs, 90, 160, 3}), depth_buf({n_envs, 90, 160})
     {
         int argc = 0;
         glutInit(&argc, nullptr);
         glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
-        glutInitWindowSize(160, 90);
+        glutInitWindowSize(160, 90*n_envs);
         glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -73,41 +77,51 @@ public:
 
     void set_obstacles(py::array_t<float_t> obstacles)
     {
-        balls.clear();
-        auto r = obstacles.unchecked<2>();
+        assert(obstacles.shape(0) == n_envs);
+        envs.clear();
+        auto r = obstacles.unchecked<3>();
+        envs.resize(r.shape(0));
         for (py::ssize_t i = 0; i < r.shape(0); i++)
         {
-            balls.emplace_back(r(i, 0), r(i, 1), r(i, 2));
+            for (py::ssize_t j = 0; j < r.shape(1); j++)
+            {
+                envs[i].emplace_back(r(i, j, 0), r(i, j, 1), r(i, j, 2));
+            }
         }
     };
 
     std::pair<py::array_t<uint8_t>, py::array_t<float_t>> render(
-        double x, double y, double z, double r, double i, double j, double k)
+        py::array_t<float_t> cameras)
     {
+        assert(cameras.shape(0) == n_envs);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-        glViewport(0, 0, 160, 90);
-        gluPerspective(180 * 0.35, 16. / 9, 0.01f, 10.0f);
-        set_camera(x, y, z, r, i, j, k);
-
-        for (auto &ball : balls)
+        auto r = cameras.unchecked<2>();
+        auto n_envs = envs.size();
+        for (int i = 0; i < cameras.shape(0); i++)
         {
-            ball.draw();
+            glLoadIdentity();
+            glViewport(0, 90*i, 160, 90);
+            gluPerspective(180 * 0.35, 16. / 9, 0.01f, 10.0f);
+            set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5), r(i, 6));
+
+            for (auto &ball : envs[i])
+            {
+                ball.draw();
+            }
+
+            glBegin(GL_QUADS);
+            glVertex3f(-10, -10, -1);
+            glVertex3f(40, -10, -1);
+            glVertex3f(40, 10, -1);
+            glVertex3f(-10, 10, -1);
+            glEnd();
         }
-
-        glBegin(GL_QUADS);
-        glVertex3f(-10, -10, -1);
-        glVertex3f(10, -10, -1);
-        glVertex3f(10, 10, -1);
-        glVertex3f(-10, 10, -1);
-        glEnd();
-
         glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0, 0, 160, 90, GL_BGR, GL_UNSIGNED_BYTE, rgb_buf.request().ptr);
-        glReadPixels(0, 0, 160, 90, GL_DEPTH_COMPONENT, GL_FLOAT, depth_buf.request().ptr);
+        glReadPixels(0, 0, 160, 90*n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb_buf.request().ptr);
+        glReadPixels(0, 0, 160, 90*n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth_buf.request().ptr);
         return {rgb_buf, depth_buf};
     };
     ~Env(){};
