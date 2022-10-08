@@ -135,6 +135,7 @@ class QuadState:
         self.q = torch.zeros(4, device=device)
         self.q[0] = 1
         self.v = torch.randn(3, device=device) * 0.1
+        self.v[0] += 1
         self.w = torch.zeros(3, device=device)
         self.a = torch.zeros(3, device=device)
         self.g = torch.tensor([0, 0, -9.80665], device=device)
@@ -164,9 +165,9 @@ class Env:
     def reset(self):
         self.quad = QuadState(self.device)
         self.obstacles = torch.stack([
-            torch.rand(20, device=self.device) * 30 + 2,
-            torch.rand(20, device=self.device) * 6 - 3,
-            torch.rand(20, device=self.device) * 4 - 1
+            torch.rand(40, device=self.device) * 30 + 5,
+            torch.rand(40, device=self.device) * 10 - 5,
+            torch.rand(40, device=self.device) * 8 - 2
         ], 1)
         self.r.set_obstacles(self.obstacles.cpu().numpy())
 
@@ -185,8 +186,6 @@ class Env:
 def main():
     env = Env('cpu')
     color, depth = env.render()
-    plt.imshow(color)
-    plt.show()
     t0 = time()
     for _ in range(250):
         # w = torch.tensor([0., 0, 0, 0])

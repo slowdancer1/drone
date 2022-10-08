@@ -18,29 +18,20 @@ args = parser.parse_args()
 class Model(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.mem = nn.Parameter(torch.randn(150, 4)*0.001)
-        self.stem = nn.Sequential(
-            nn.Conv2d(3, 64, 7, 2), nn.ReLU(),
-            nn.Conv2d(64, 256, 3, 2), nn.ReLU(),
-        )
+        self.stem = nn.Linear(16*9, 256, bias=False)
         self.v_proj = nn.Linear(6, 256)
         self.gru = nn.GRUCell(256, 256)
         self.fc = nn.Linear(256, 4, bias=False)
-        self.fc.weight.data.mul_(0.)
+        self.fc.weight.data.mul_(0.01)
+        self.drop = nn.Dropout()
         self.history = []
     
     def forward(self, x: torch.Tensor, v, hx=None):
-        x = F.max_pool2d(x, 2, 2)
-        n, c, h, w = x.shape
-        pos = torch.stack(torch.meshgrid(
-            torch.linspace(-1, 1, h, device=x.device),
-            torch.linspace(-1, 1, w, device=x.device)
-        ), 0)[None].expand(n, 2, h, w)
-        x = torch.cat([x, pos], 1)
-        x = self.stem(x)
-        x = x.mean((2, 3)) + self.v_proj(v).relu()
+        x = F.max_pool2d(x, 10, 10)
+        x = (self.stem(x.flatten(1)) + self.v_proj(v)).relu()
+        x = self.drop(x)
         hx = self.gru(x, hx)
-        return self.fc(x).tanh(), hx
+        return self.fc(self.drop(hx)).tanh(), hx
 
 # model = Model()
 model = Model().cuda()
@@ -65,9 +56,9 @@ for i in range(10000):
     loss_obj_avoidance = 0
     for t in range(250):
         color, depth = env.render()
-        depth = np.nan_to_num(4 / depth, False, 0, 0, 0)
-        x = torch.clamp(torch.as_tensor(depth[None, None]) - 1, -1, 4)
-        if (i + 1) % 100 == 0 and t % 5 == 0:
+        depth = np.nan_to_num(1 / depth, False, 0, 0, 0)
+        x = torch.clamp(torch.as_tensor(depth[None, None]) - 1, -1, 6)
+        if (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color.copy())
         act, h = model(x.cuda(), torch.cat([env.quad.v, env.quad.w])[None].cuda(), h)
         act = act[0].cpu()
@@ -93,7 +84,7 @@ for i in range(10000):
 
     v_target = torch.zeros_like(v_history)
     v_target[:, 0] = 2
-    loss_v_error = F.mse_loss(v_history, v_target, reduction='none').sum(-1).mean()
+    loss_v_error = (2 - v_history[:, 0]).relu().pow(2).mean()
     loss_p_error = F.mse_loss(p_history[:, 1:], v_target[:, 1:], reduction='none').sum(-1).mean()
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
@@ -109,7 +100,7 @@ for i in range(10000):
 
     loss_obj_avoidance /= t + 1
 
-    loss = loss_v_error + 0.1 * loss_p_error + 0.1 * loss_d_ctrl + 0.01 * loss_acc + 10 * loss_obj_avoidance + loss_look_ahead
+    loss = loss_v_error + 0.1 * loss_p_error + 0.1 * loss_d_ctrl + 0.01 * loss_acc + 1e3 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(loss.item())
@@ -125,9 +116,9 @@ for i in range(10000):
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
         writer.add_scalar('loss_look_ahead', loss_look_ahead, i)
         writer.add_scalar('t', t, i)
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
-            writer.add_video('color', vid, i, fps=3)
+            writer.add_video('color', vid, i, fps=5)
             fig = plt.figure()
             v_history = v_history.cpu()
             plt.plot(v_history[:, 0], label='x')

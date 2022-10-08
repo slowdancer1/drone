@@ -79,8 +79,8 @@ class QuadState:
         self.rate_ctl_delay = 0.2
 
     def run(self, w, c, ctl_dt=1/15):
-        # alpha = 0.9 ** ctl_dt
-        # _p, _v, _q, _w = map(scale_grad(alpha), (self.p, self.v, self.q, self.w))
+        alpha = 0.6 ** ctl_dt
+        _p, _v, _q, _w = map(scale_grad(alpha), (self.p, self.v, self.q, self.w))
         _p, _v, _q, _w = self.p, self.v, self.q, self.w
         self.p, self.v, self.q, self.w = run(
             _p, _v, _q, _w, self.g, w, c, ctl_dt, self.rate_ctl_delay)
