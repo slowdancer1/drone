@@ -54,7 +54,7 @@ for i in range(10000):
     vid = []
     h = None
     loss_obj_avoidance = 0
-    for t in range(250):
+    for t in range(150):
         color, depth = env.render()
         depth = torch.as_tensor(depth[:, None]).cuda()
         x = torch.clamp(1 / depth - 1, -1, 6)
@@ -81,7 +81,7 @@ for i in range(10000):
 
     v_target = torch.zeros_like(v_history)
     v_target[..., 0] = 2
-    loss_v_error = (2 - v_history[..., 0]).relu().pow(2).mean()
+    loss_v_error = (4 - v_history[..., 0]).relu().mean()
     loss_p_error = F.mse_loss(p_history[..., 1:], v_target[..., 1:], reduction='none').sum(-1).mean()
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
@@ -97,7 +97,7 @@ for i in range(10000):
 
     loss_obj_avoidance /= t + 1
 
-    loss = loss_v_error + 0.1 * loss_p_error + 0.1 * loss_d_ctrl + 0.01 * loss_acc + 1e3 * loss_obj_avoidance + loss_look_ahead
+    loss = loss_v_error + 0.1 * loss_p_error + loss_d_ctrl + 0.01 * loss_acc + 1e3 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(loss.item())
