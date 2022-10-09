@@ -60,7 +60,8 @@ for i in range(10000):
         x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
-        act, h = model(x, torch.cat([env.quad.v, env.quad.w], -1), h)
+        state = torch.cat([env.quad.v, env.quad.w], -1)
+        act, h = model(x, state, h)
         env.step(act, ctl_dt)
 
         p_history.append(env.quad.p)
