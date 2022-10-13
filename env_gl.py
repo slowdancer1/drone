@@ -96,16 +96,8 @@ def quaternion_to_forward(quaternions):
         two_s * (i * k - j * r)), -1)
 
 
-camera_pose = np.array([
-   [0.0,  0,  -1,   0.0],
-   [-1,  0.0, 0.0, 0.0],
-   [0,   1,   0,   0.0],
-   [0.0,  0.0, 0.0, 1.0],
-])
-
-
 @torch.jit.script
-def run(self_p, self_v, self_q, self_w, g, action, ctl_dt:float=1/15, rate_ctl_delay:float=0.1):
+def run(self_p, self_v, self_q, self_w, g, thrust, action, ctl_dt:float=1/15, rate_ctl_delay:float=0.1):
     alpha = 0.6 ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
     self_v = alpha * self_v + (1 - alpha) * self_v.detach()
@@ -120,12 +112,16 @@ def run(self_p, self_v, self_q, self_w, g, action, ctl_dt:float=1/15, rate_ctl_d
     self_w = w * (1 - alpha) + self_w * alpha
     self_q = axis_angle_to_quaternion(self_w)
     up_vec = quaternion_to_up(self_q)
-    _a = up_vec * c * 9.80665 + g - 0.1 * self_v * torch.norm(self_v, -1)
+    _a = up_vec * c * thrust + g - 0.1 * self_v * torch.norm(self_v, -1)
 
     self_v = self_v + _a * ctl_dt
     self_p = self_p + self_v * ctl_dt
     return self_p, self_v, self_q, self_w
+
+
 batch_size = 16
+
+
 class QuadState:
     def __init__(self, device) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
@@ -135,13 +131,15 @@ class QuadState:
         self.v[:, 0] += 1
         self.w = torch.zeros((batch_size, 3), device=device)
         self.a = torch.zeros((batch_size, 3), device=device)
-        self.g = torch.tensor([0, 0, -9.80665], device=device)
+        self.g = torch.randn((batch_size, 3), device=device) * 0.1
+        self.g[:, 2] -= 9.80665
+        self.thrust = torch.randn((batch_size, 1), device=device) + 9.80665
 
         self.rate_ctl_delay = 0.2
 
     def run(self, action, ctl_dt=1/15):
         self.p, self.v, self.q, self.w = run(
-            self.p, self.v, self.q, self.w, self.g, action, ctl_dt, self.rate_ctl_delay)
+            self.p, self.v, self.q, self.w, self.g, self.thrust, action, ctl_dt, self.rate_ctl_delay)
 
     def stat(self):
         print("p:", self.p.tolist())
