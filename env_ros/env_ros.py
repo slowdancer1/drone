@@ -1,3 +1,7 @@
+import json
+from signal import SIGTERM
+import subprocess
+import cv2
 import numpy as np
 import torch
 import quadsim
@@ -170,6 +174,7 @@ class QuadState:
 
 class Env:
     def __init__(self, device) -> None:
+        torch.manual_seed(0)
         self.device = device
         self.r = EnvRenderer(batch_size)
         self.reset()
@@ -192,38 +197,57 @@ class Env:
     def step(self, action, ctl_dt=1/15):
         self.quad.run(action, ctl_dt)
 
+env = Env('cpu')
 
 @torch.no_grad()
 def main():
     import rospy
     from nav_msgs.msg import Odometry
-    from geometry_msgs.msg import Pose, PoseWithCovariance, Point, Quaternion, Vector3, TwistWithCovariance, Twist
+    from geometry_msgs.msg import Pose, PoseWithCovariance, Point, Quaternion, Vector3, TwistWithCovariance, Twist, PoseStamped
     from sensor_msgs.msg import Imu, Image
     from mavros_msgs.msg import AttitudeTarget
+    from visualization_msgs.msg import Marker
     import cv_bridge
+    from quadrotor_msgs.msg import PositionCommand
+
     rospy.init_node('env_ros', anonymous=True)
     depth_pub = rospy.Publisher('/iris_0/realsense/depth_camera/depth/image_raw', Image, queue_size=10)
     odom_pub = rospy.Publisher('/vins_fusion/imu_propagate', Odometry, queue_size=10)
     odom2_pub = rospy.Publisher('/vins_fusion/odometry', Odometry, queue_size=10)
     imu_pub = rospy.Publisher('/iris_0/mavros/imu/data', Imu, queue_size=10)
+    pos_cmd_pub = rospy.Publisher('/traj_start_trigger', PoseStamped, queue_size=10)
     q_target = [1., 0, 0, 0, 0]
+    start_step_id = 0
+
     def set_attitude_target(data):
-        nonlocal q_target
+        nonlocal q_target, start_step_id, step_id
+        if start_step_id == 0:
+            print("Starting")
+            start_step_id = step_id
+            pos_cmd_pub.publish()
         x, y, z, w = data.orientation.x, data.orientation.y, data.orientation.z, data.orientation.w
         q_target = w, x, y, z, data.thrust / 0.3 - 1
+
+    planed_trajs = []
+    real_traj = []
+    def optimal_list(data):
+        planed_trajs.append([[p.x, p.y, p.z] for p in data.points])
+
     rospy.Subscriber('/iris_0/mavros/setpoint_raw/attitude', AttitudeTarget, set_attitude_target, queue_size=10)
+    rospy.Subscriber('/drone_0_ego_planner_node/optimal_list', Marker, optimal_list, queue_size=10)
     rate = rospy.Rate(120)
-    env = Env('cpu')
+    env.reset()
     bridge = cv_bridge.CvBridge()
     step_id = 0
+    # p = subprocess.Popen(['roslaunch', 'ego_planner', 'single_run_in_glsim.launch'])
     while not rospy.is_shutdown():
         step_id += 1
         stamp = rospy.Time.now()
-        env.step(torch.tensor(q_target).reshape(1, 5), 1 / 100)
-        x, y, z = env.quad.p[0].tolist()
-        position = Point(x, y, z + 1)
+        env.step(torch.tensor(q_target).reshape(1, 5), 1 / 120)
         w, x, y, z = env.quad.q[0].tolist()
         orientation = Quaternion(x, y, z, w)
+        x, y, z = env.quad.p[0].tolist()
+        position = Point(x, y, z + 1)
         odom_msg = Odometry(
             pose=PoseWithCovariance(pose=Pose(
                 position=position,
@@ -240,8 +264,32 @@ def main():
             depth_image.header.stamp = stamp
             depth_pub.publish(depth_image)
             odom2_pub.publish(odom_msg)
+            if start_step_id:
+                real_traj.append([x, y, z + 1])
         odom_pub.publish(odom_msg)
+
+        time = (step_id - start_step_id) / 120
+        if x > 35:
+            print("done", time)
+            with open("env_result.txt", 'a') as f:
+                f.write(f'{time}\n')
+            break
+        no_colision = torch.all(torch.norm(env.quad.p - env.obstacles[0], 2, -1) > 1)
+        if not no_colision or time > 30:
+            print("fail")
+            with open("env_result.txt", 'a') as f:
+                f.write(f'30\n')
+            break
+        # if start_step_id and (step_id - start_step_id)%24==0:
+        #     cv2.imwrite(f'{(step_id - start_step_id)//24:03d}.png', color[0])
         rate.sleep()
+    # p.send_signal(SIGTERM)
+    # p.wait()
+    with open("log.json", 'w') as f:
+        json.dump({
+            'planed_trajs': planed_trajs,
+            'real_traj': real_traj
+        }, f)
 
 
 if __name__ == '__main__':

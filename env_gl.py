@@ -119,11 +119,10 @@ def run(self_p, self_v, self_q, self_w, g, thrust, action, ctl_dt:float=1/15, ra
     return self_p, self_v, self_q, self_w
 
 
-batch_size = 16
 
 
 class QuadState:
-    def __init__(self, device) -> None:
+    def __init__(self, batch_size, device) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
         self.q = torch.zeros((batch_size, 4), device=device)
         self.q[:, 0] = 1
@@ -149,17 +148,18 @@ class QuadState:
 
 
 class Env:
-    def __init__(self, device) -> None:
+    def __init__(self, batch_size, device='cpu') -> None:
         self.device = device
+        self.batch_size = batch_size
         self.r = EnvRenderer(batch_size)
         self.reset()
 
     def reset(self):
-        self.quad = QuadState(self.device)
+        self.quad = QuadState(self.batch_size, self.device)
         self.obstacles = torch.stack([
-            torch.rand((batch_size, 40), device=self.device) * 30 + 5,
-            torch.rand((batch_size, 40), device=self.device) * 10 - 5,
-            torch.rand((batch_size, 40), device=self.device) * 8 - 2
+            torch.rand((self.batch_size, 40), device=self.device) * 30 + 5,
+            torch.rand((self.batch_size, 40), device=self.device) * 10 - 5,
+            torch.rand((self.batch_size, 40), device=self.device) * 8 - 2
         ], -1)
         self.r.set_obstacles(self.obstacles.cpu().numpy())
 
