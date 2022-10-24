@@ -1,7 +1,7 @@
 import os
 from matplotlib import pyplot as plt
 import numpy as np
-from env_gl import Env, quaternion_to_forward
+from env_gl import Env
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -19,7 +19,7 @@ class Model(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.stem = nn.Linear(16*9, 256, bias=False)
-        self.v_proj = nn.Linear(6, 256)
+        self.v_proj = nn.Linear(7, 256)
         self.gru = nn.GRUCell(256, 256)
         self.fc = nn.Linear(256, 4, bias=False)
         self.fc.weight.data.mul_(0.01)
@@ -37,7 +37,7 @@ class Model(nn.Module):
 model = Model().cuda()
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location='cuda'))
-env = Env('cuda')
+env = Env(16, 'cuda')
 optim = AdamW(model.parameters(), 5e-4)
 
 ctl_dt = 1 / 15
@@ -60,7 +60,7 @@ for i in range(10000):
         x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
-        state = torch.cat([env.quad.v, env.quad.w], -1)
+        state = torch.cat([env.quad.v, env.quad.q], -1)
         act, h = model(x, state, h)
         env.step(act, ctl_dt)
 

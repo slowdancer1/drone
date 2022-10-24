@@ -4,3 +4,7 @@ __pycache__/
 src/build/
 .vscode/
 *.so
+*.png
+*.gif
+log.json
+env_result.txt
