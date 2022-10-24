@@ -10,7 +10,8 @@ from ratation import (
     quaternion_multiply,
     quaternion_raw_multiply,
     quaternion_to_up,
-    quaternion_to_yaw)
+    quaternion_to_yaw,
+    roll_pitch_yaw_to_matrix)
 
 
 class EnvRenderer(quadsim.Env):
@@ -24,39 +25,34 @@ class EnvRenderer(quadsim.Env):
         return color, depth
 
 
-@torch.jit.script
-def run(self_p, self_v, self_q, g, thrust, action, ctl_dt:float, rate_ctl_delay):
+# @torch.jit.script
+def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay):
     alpha = 0.6 ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
     self_v = alpha * self_v + (1 - alpha) * self_v.detach()
-    self_q = alpha * self_q + (1 - alpha) * self_q.detach()
-
-    w = action[:, :3].clone()
-    w[:, 2] += quaternion_to_yaw(self_q)
-    mask = torch.eye(3, device=action.device)
-    roll, pitch, yaw = torch.unbind(w.unsqueeze(-1).repeat(1, 1, 3) * mask, -1)
-    q1 = axis_angle_to_quaternion(yaw)
-    q2 = axis_angle_to_quaternion(pitch)
-    q3 = axis_angle_to_quaternion(roll)
-    q = quaternion_multiply(quaternion_raw_multiply(q1, q2), q3)
-    c = action[:, 3:] + 1
+    self_w = alpha * self_w + (1 - alpha) * self_w.detach()
 
     alpha = rate_ctl_delay ** (ctl_dt / rate_ctl_delay)
+    self_w = action[:, :3] * (1 - alpha) + self_w * alpha
+    cx, cy, cz = torch.cos(self_w).unbind(-1)
+    sx, sy, sz = torch.sin(self_w).unbind(-1)
+    up_vec = torch.stack([
+        cx*cz*sy+sx*sz,
+        -cz*sx+cx*sy*sz,
+        cx*cy], -1)
 
-    self_q = F.normalize(q * (1 - alpha) + self_q * alpha)
-    up_vec = quaternion_to_up(self_q)
+    c = action[:, 3:] + 1
     _a = up_vec * c * thrust + g - 0.1 * self_v * torch.norm(self_v, -1)
 
     self_v = self_v + _a * ctl_dt
     self_p = self_p + self_v * ctl_dt
-    return self_p, self_v, self_q
+    return self_p, self_v, self_w
 
 
 class QuadState:
     def __init__(self, batch_size, device) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
-        self.q = torch.zeros((batch_size, 4), device=device)
-        self.q[:, 0] = 1
+        self.w = torch.zeros((batch_size, 3), device=device)
         self.v = torch.randn((batch_size, 3), device=device)
         self.a = torch.zeros((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
@@ -66,13 +62,8 @@ class QuadState:
         self.rate_ctl_delay = 0.1 + 0.2 * torch.rand((batch_size, 1), device=device)
 
     def run(self, action, ctl_dt=1/15):
-        self.p, self.v, self.q = run(
-            self.p, self.v, self.q, self.g, self.thrust, action, ctl_dt, self.rate_ctl_delay)
-
-    def stat(self):
-        print("p:", self.p.tolist())
-        print("v:", self.v.tolist())
-        print("q:", self.q.tolist())
+        self.p, self.v, self.w = run(
+            self.p, self.v, self.w, self.g, self.thrust, action, ctl_dt, self.rate_ctl_delay)
 
 
 class Env:
@@ -93,7 +84,7 @@ class Env:
 
     @torch.no_grad()
     def render(self):
-        state = torch.cat([self.quad.p, self.quad.q], -1)
+        state = torch.cat([self.quad.p, self.quad.w], -1)
         color, depth = self.r.render(state.cpu().numpy())
         return color, depth
 

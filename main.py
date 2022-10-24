@@ -20,13 +20,13 @@ class Model(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.stem = nn.Linear(16*9, 256, bias=False)
-        self.v_proj = nn.Linear(7, 256)
+        self.v_proj = nn.Linear(5, 256)
         self.gru = nn.GRUCell(256, 256)
         self.fc = nn.Linear(256, 4, bias=False)
         self.fc.weight.data.mul_(0.01)
         self.drop = nn.Dropout()
         self.history = []
-    
+
     def forward(self, x: torch.Tensor, v, hx=None):
         x = F.max_pool2d(x, 10, 10)
         x = (self.stem(x.flatten(1)) + self.v_proj(v)).relu()
@@ -35,7 +35,7 @@ class Model(nn.Module):
         return self.fc(self.drop(hx)).tanh(), hx
 
 # model = Model()
-device = torch.device('cpu')
+device = torch.device('cuda')
 model_device = torch.device('cuda')
 model = Model().to(model_device)
 if args.resume:
@@ -63,7 +63,7 @@ for i in range(10000):
         x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
-        state = torch.cat([env.quad.v, env.quad.q], -1).to(model_device)
+        state = torch.cat([env.quad.v, env.quad.w[:, :2]], -1).to(model_device)
         act, h = model(x, state, h)
         act = act.to(device)
         env.step(act, ctl_dt)
@@ -79,11 +79,12 @@ for i in range(10000):
     v_target = torch.randn_like(v_history)
     v_target[..., 0] += 4
     v_target[..., 2] = 0
-    v_target = F.normalize(v_target, dim=-1)
+    v_target_scaler = torch.norm(v_target, 2, -1)
+    v_target /= v_target_scaler[..., None]
     v_forward = torch.sum(v_target * v_history, -1)
     v_drift = v_history - v_forward[..., None] * v_target
 
-    loss_v_forward = (4 - v_forward).relu().mean()
+    loss_v_forward = (v_target_scaler - v_forward).relu().mean()
     loss_v_drift = v_drift.pow(2).sum(-1).mean()
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()

@@ -15,16 +15,21 @@
 namespace py = pybind11;
 
 inline void set_camera(
-    double x, double y, double z, double r, double i, double j, double k)
+    double x, double y, double z, double roll, double pitch, double yaw)
 {
-    double two_s = 2.0 / (r * r + i * i + j * j + k * k);
+    double cx = cos(roll);
+    double cy = cos(pitch);
+    double cz = cos(yaw);
+    double sx = sin(roll);
+    double sy = sin(pitch);
+    double sz = sin(yaw);
 
-    double up_x = two_s * (i * k + j * r);
-    double up_y = two_s * (j * k - i * r);
-    double up_z = 1 - two_s * (i * i + j * j);
-    double forward_x = 1 - two_s * (j * j + k * k);
-    double forward_y = two_s * (i * j + k * r);
-    double forward_z = two_s * (i * k - j * r);
+    double up_x = cx * cz * sy + sx * sz;
+    double up_y = -cz * sx + cx * sy * sz;
+    double up_z = cx * cy;
+    double forward_x = cy * cz;
+    double forward_y = cy * sz;
+    double forward_z = -sy;
 
     gluLookAt(x, y, z,
               x + forward_x, y + forward_y, z + forward_z,
@@ -48,7 +53,7 @@ public:
         glutInit(&argc, nullptr);
         glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
-        glutInitWindowSize(160, 90*n_envs);
+        glutInitWindowSize(160, 90 * n_envs);
         glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -106,9 +111,9 @@ public:
         for (int i = 0; i < cameras.shape(0); i++)
         {
             glLoadIdentity();
-            glViewport(0, 90*i, 160, 90);
+            glViewport(0, 90 * i, 160, 90);
             gluPerspective(180 * 0.35, 16. / 9, 0.01f, 10.0f);
-            set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5), r(i, 6));
+            set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5));
 
             for (auto &ball : envs[i])
             {
@@ -124,8 +129,8 @@ public:
         }
         glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0, 0, 160, 90*n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb_buf.request().ptr);
-        glReadPixels(0, 0, 160, 90*n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth_buf.request().ptr);
+        glReadPixels(0, 0, 160, 90 * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb_buf.request().ptr);
+        glReadPixels(0, 0, 160, 90 * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth_buf.request().ptr);
         return {rgb_buf, depth_buf};
     };
     ~Env(){};

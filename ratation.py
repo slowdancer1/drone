@@ -567,3 +567,21 @@ def quaternion_to_forward(quaternions):
 def quaternion_to_yaw(quaternions):
     w, x, y, z = torch.unbind(quaternions, -1)
     return torch.atan2(2 * (x*y + w*z), w*w + x*x - y*y - z*z)
+
+def roll_pitch_yaw_to_matrix(xyz):
+    cx, cy, cz = torch.cos(xyz).unbind(-1)
+    sx, sy, sz = torch.sin(xyz).unbind(-1)
+    up_vec = torch.stack([
+        cx*cz*sy+sx*sz,
+        -cz*sx+cx*sy*sz,
+        cx*cy], -1)
+    left_vec = torch.stack([
+        cz*sx*sy-cx*sz,
+        cx*sz+sx*sy*sz,
+        cy*sx
+    ], dim=-1)
+    forward_vec = torch.stack([
+        cy*cz,
+        cy*sz,
+        -sy], -1)
+    return torch.stack([forward_vec, left_vec, up_vec], -1)
