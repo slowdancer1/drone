@@ -12,8 +12,8 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
+parser.add_argument('--batch_size', default=16)
 args = parser.parse_args()
-
 
 class Model(nn.Module):
     def __init__(self) -> None:
@@ -34,21 +34,21 @@ class Model(nn.Module):
         return self.fc(self.drop(hx)).tanh(), hx
 
 # model = Model()
-model = Model().cuda()
+device = torch.device('cpu')
+model = Model().to(device)
 if args.resume:
-    model.load_state_dict(torch.load(args.resume, map_location='cuda'))
-env = Env(16, 'cuda')
+    model.load_state_dict(torch.load(args.resume, map_location=device))
+env = Env(args.batch_size, device)
 optim = AdamW(model.parameters(), 5e-4)
 
 ctl_dt = 1 / 15
 
 writer = SummaryWriter(flush_secs=1)
-p_ctl_pts = torch.linspace(0, ctl_dt, 8, device='cuda').reshape(-1, 1, 1, 1)
+p_ctl_pts = torch.linspace(0, ctl_dt, 8, device=device).reshape(-1, 1, 1, 1)
 
 for i in range(10000):
     env.reset()
     p_history = []
-    q_history = []
     v_history = []
     act_history = []
     vid = []
@@ -56,7 +56,7 @@ for i in range(10000):
     loss_obj_avoidance = 0
     for t in range(150):
         color, depth = env.render()
-        depth = torch.as_tensor(depth[:, None]).cuda()
+        depth = torch.as_tensor(depth[:, None]).to(device)
         x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
@@ -65,19 +65,22 @@ for i in range(10000):
         env.step(act, ctl_dt)
 
         p_history.append(env.quad.p)
-        q_history.append(env.quad.q)
         v_history.append(env.quad.v)
         act_history.append(act)
 
     p_history = torch.stack(p_history)
-    q_history = torch.stack(q_history)
     v_history = torch.stack(v_history)
     act_history = torch.stack(act_history)
 
-    v_target = torch.zeros_like(v_history)
-    v_target[..., 0] = 2
-    loss_v_error = (4 - v_history[..., 0]).relu().mean()
-    loss_p_error = F.mse_loss(p_history[..., 1:], v_target[..., 1:], reduction='none').sum(-1).mean()
+    v_target = torch.randn_like(v_history)
+    v_target[..., 0] += 4
+    v_target[..., 2] = 0
+    v_target = F.normalize(v_target, dim=-1)
+    v_forward = torch.sum(v_target * v_history, -1)
+    v_drift = v_history - v_forward[..., None] * v_target
+
+    loss_v_forward = (4 - v_forward).relu().mean()
+    loss_v_drift = v_drift.pow(2).sum(-1).mean()
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
     loss_acc = (v_history[1:] - v_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
@@ -87,12 +90,7 @@ for i in range(10000):
     x_l = distance.clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
-    # v_norm = torch.norm(v_history, dim=-1)
-    # loss_look_ahead = (1 - (quaternion_to_forward(q_history) @ v_history.t()) / (v_norm + 0.1)) * v_norm
-    # loss_look_ahead = loss_look_ahead.mean()
-    loss_look_ahead = 0
-
-    loss = loss_v_error + 0.1 * loss_p_error + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance + loss_look_ahead
+    loss = loss_v_forward + loss_v_drift + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(loss.item())
@@ -101,12 +99,11 @@ for i in range(10000):
     optim.step()
     with torch.no_grad():
         writer.add_scalar('loss', loss, i)
-        writer.add_scalar('loss_v_error', loss_v_error, i)
-        writer.add_scalar('loss_p_error', loss_p_error, i)
+        writer.add_scalar('loss_v_forward', loss_v_forward, i)
+        writer.add_scalar('loss_v_drift', loss_v_drift, i)
         writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
         writer.add_scalar('loss_acc', loss_acc, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
-        writer.add_scalar('loss_look_ahead', loss_look_ahead, i)
         writer.add_scalar('t', t, i)
         if (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
