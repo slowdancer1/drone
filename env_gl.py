@@ -2,7 +2,15 @@ from time import time
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 import quadsim
+
+from ratation import (
+    axis_angle_to_quaternion,
+    quaternion_multiply,
+    quaternion_raw_multiply,
+    quaternion_to_up,
+    quaternion_to_yaw)
 
 
 class EnvRenderer(quadsim.Env):
@@ -16,109 +24,32 @@ class EnvRenderer(quadsim.Env):
         return color, depth
 
 
-def axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:
-    """
-    Convert rotations given as axis/angle to quaternions.
-    Args:
-        axis_angle: Rotations given as a vector in axis angle form,
-            as a tensor of shape (..., 3), where the magnitude is
-            the angle turned anticlockwise in radians around the
-            vector's direction.
-    Returns:
-        quaternions with real part first, as tensor of shape (..., 4).
-    """
-    angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True)
-    half_angles = angles * 0.5
-    eps = 1e-6
-    small_angles = angles.abs() < eps
-    sin_half_angles_over_angles = torch.empty_like(angles)
-    sin_half_angles_over_angles[~small_angles] = (
-        torch.sin(half_angles[~small_angles]) / angles[~small_angles]
-    )
-    # for x small, sin(x/2) is about x/2 - (x/2)^3/6
-    # so sin(x/2)/x is about 1/2 - (x*x)/48
-    sin_half_angles_over_angles[small_angles] = (
-        0.5 - (angles[small_angles] * angles[small_angles]) / 48
-    )
-    quaternions = torch.cat(
-        [torch.cos(half_angles), axis_angle * sin_half_angles_over_angles], dim=-1
-    )
-    return quaternions
-
-
-def quaternion_to_matrix(quaternions: torch.Tensor) -> torch.Tensor:
-    """
-    Convert rotations given as quaternions to rotation matrices.
-    Args:
-        quaternions: quaternions with real part first,
-            as tensor of shape (..., 4).
-    Returns:
-        Rotation matrices as tensor of shape (..., 3, 3).
-    """
-    r, i, j, k = torch.unbind(quaternions, -1)
-    # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
-    two_s = 2.0 / (quaternions * quaternions).sum(-1)
-
-    o = torch.stack(
-        (
-            1 - two_s * (j * j + k * k),
-            two_s * (i * j - k * r),
-            two_s * (i * k + j * r),
-            two_s * (i * j + k * r),
-            1 - two_s * (i * i + k * k),
-            two_s * (j * k - i * r),
-            two_s * (i * k - j * r),
-            two_s * (j * k + i * r),
-            1 - two_s * (i * i + j * j),
-        ),
-        -1,
-    )
-    return o.reshape(quaternions.shape[:-1] + (3, 3))
-
-
-def quaternion_to_up(quaternions):
-    r, i, j, k = torch.unbind(quaternions, -1)
-    two_s = 2.0 / (quaternions * quaternions).sum(-1)
-
-    return torch.stack((
-        two_s * (i * k + j * r),
-        two_s * (j * k - i * r),
-        1 - two_s * (i * i + j * j)), -1)
-
-
-def quaternion_to_forward(quaternions):
-    r, i, j, k = torch.unbind(quaternions, -1)
-    two_s = 2.0 / (quaternions * quaternions).sum(-1)
-
-    return torch.stack((
-        1 - two_s * (j * j + k * k),
-        two_s * (i * j + k * r),
-        two_s * (i * k - j * r)), -1)
-
-
 @torch.jit.script
-def run(self_p, self_v, self_q, self_w, g, thrust, action, ctl_dt:float=1/15, rate_ctl_delay:float=0.1):
+def run(self_p, self_v, self_q, g, thrust, action, ctl_dt:float, rate_ctl_delay):
     alpha = 0.6 ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
     self_v = alpha * self_v + (1 - alpha) * self_v.detach()
     self_q = alpha * self_q + (1 - alpha) * self_q.detach()
-    self_w = alpha * self_w + (1 - alpha) * self_w.detach()
 
-    w = action[:, :3]
+    w = action[:, :3].clone()
+    w[:, 2] += quaternion_to_yaw(self_q)
+    mask = torch.eye(3, device=action.device)
+    roll, pitch, yaw = torch.unbind(w.unsqueeze(-1).repeat(1, 1, 3) * mask, -1)
+    q1 = axis_angle_to_quaternion(yaw)
+    q2 = axis_angle_to_quaternion(pitch)
+    q3 = axis_angle_to_quaternion(roll)
+    q = quaternion_multiply(quaternion_raw_multiply(q1, q2), q3)
     c = action[:, 3:] + 1
 
     alpha = rate_ctl_delay ** (ctl_dt / rate_ctl_delay)
 
-    self_w = w * (1 - alpha) + self_w * alpha
-    self_q = axis_angle_to_quaternion(self_w)
+    self_q = F.normalize(q * (1 - alpha) + self_q * alpha)
     up_vec = quaternion_to_up(self_q)
     _a = up_vec * c * thrust + g - 0.1 * self_v * torch.norm(self_v, -1)
 
     self_v = self_v + _a * ctl_dt
     self_p = self_p + self_v * ctl_dt
-    return self_p, self_v, self_q, self_w
-
-
+    return self_p, self_v, self_q
 
 
 class QuadState:
@@ -126,25 +57,22 @@ class QuadState:
         self.p = torch.zeros((batch_size, 3), device=device)
         self.q = torch.zeros((batch_size, 4), device=device)
         self.q[:, 0] = 1
-        self.v = torch.randn((batch_size, 3), device=device) * 0.1
-        self.v[:, 0] += 1
-        self.w = torch.zeros((batch_size, 3), device=device)
+        self.v = torch.randn((batch_size, 3), device=device)
         self.a = torch.zeros((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
         self.g[:, 2] -= 9.80665
         self.thrust = torch.randn((batch_size, 1), device=device) + 9.80665
 
-        self.rate_ctl_delay = 0.2
+        self.rate_ctl_delay = 0.1 + 0.2 * torch.rand((batch_size, 1), device=device)
 
     def run(self, action, ctl_dt=1/15):
-        self.p, self.v, self.q, self.w = run(
-            self.p, self.v, self.q, self.w, self.g, self.thrust, action, ctl_dt, self.rate_ctl_delay)
+        self.p, self.v, self.q = run(
+            self.p, self.v, self.q, self.g, self.thrust, action, ctl_dt, self.rate_ctl_delay)
 
     def stat(self):
         print("p:", self.p.tolist())
         print("v:", self.v.tolist())
         print("q:", self.q.tolist())
-        print("w:", self.w.tolist())
 
 
 class Env:
