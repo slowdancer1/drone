@@ -1,4 +1,5 @@
 import os
+import time
 from matplotlib import pyplot as plt
 import numpy as np
 from env_gl import Env
@@ -35,9 +36,10 @@ class Model(nn.Module):
 
 # model = Model()
 device = torch.device('cpu')
-model = Model().to(device)
+model_device = torch.device('cuda')
+model = Model().to(model_device)
 if args.resume:
-    model.load_state_dict(torch.load(args.resume, map_location=device))
+    model.load_state_dict(torch.load(args.resume, map_location=model_device))
 env = Env(args.batch_size, device)
 optim = AdamW(model.parameters(), 5e-4)
 
@@ -47,6 +49,7 @@ writer = SummaryWriter(flush_secs=1)
 p_ctl_pts = torch.linspace(0, ctl_dt, 8, device=device).reshape(-1, 1, 1, 1)
 
 for i in range(10000):
+    t0 = time.time()
     env.reset()
     p_history = []
     v_history = []
@@ -56,12 +59,13 @@ for i in range(10000):
     loss_obj_avoidance = 0
     for t in range(150):
         color, depth = env.render()
-        depth = torch.as_tensor(depth[:, None]).to(device)
+        depth = torch.as_tensor(depth[:, None]).to(model_device)
         x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
-        state = torch.cat([env.quad.v, env.quad.q], -1)
+        state = torch.cat([env.quad.v, env.quad.q], -1).to(model_device)
         act, h = model(x, state, h)
+        act = act.to(device)
         env.step(act, ctl_dt)
 
         p_history.append(env.quad.p)
@@ -93,7 +97,7 @@ for i in range(10000):
     loss = loss_v_forward + loss_v_drift + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    print(loss.item())
+    print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')
     optim.zero_grad()
     loss.backward()
     optim.step()
