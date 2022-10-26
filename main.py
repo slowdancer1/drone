@@ -13,7 +13,7 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
-parser.add_argument('--batch_size', default=16)
+parser.add_argument('--batch_size', type=int, default=16)
 args = parser.parse_args()
 
 class Model(nn.Module):
@@ -35,8 +35,8 @@ class Model(nn.Module):
         return self.fc(self.drop(hx)).tanh(), hx
 
 # model = Model()
-device = torch.device('cuda')
-model_device = torch.device('cuda')
+device = torch.device('cpu')
+model_device = torch.device('cpu')
 model = Model().to(model_device)
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location=model_device))

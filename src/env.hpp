@@ -57,7 +57,7 @@ public:
         glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glEnable(GL_BLEND);
+        // glEnable(GL_BLEND);
 
         //材质反光性设置
         GLfloat mat_specular[] = {1.0, 1.0, 1.0, 1.0}; //镜面反射参数
@@ -67,7 +67,7 @@ public:
         GLfloat Light_Model_Ambient[] = {0.5, 0.5, 0.5, 1.0}; //环境光参数
 
         glClearColor(0.0, 0.0, 0.0, 0.0); //背景色
-        glShadeModel(GL_SMOOTH);          //多变性填充模式
+        // glShadeModel(GL_SMOOTH);          //多变性填充模式
 
         //材质属性
         glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
@@ -127,7 +127,7 @@ public:
             glVertex3f(-10, 10, -1);
             glEnd();
         }
-        glFlush();
+        // glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);
         glReadPixels(0, 0, 160, 90 * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb_buf.request().ptr);
         glReadPixels(0, 0, 160, 90 * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth_buf.request().ptr);
