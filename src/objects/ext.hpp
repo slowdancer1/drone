@@ -82,6 +82,6 @@ public:
     }
     Vector3f nearestPt(Vector3f const &p)
     {
-        return p / fmaxf(p.norm(), 1) * r;
+        return p / fmaxf(p.norm(), r) * r;
     }
 };

@@ -52,7 +52,7 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay)
 class QuadState:
     def __init__(self, batch_size, device) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
-        self.w = torch.zeros((batch_size, 3), device=device)
+        self.w = torch.randn((batch_size, 3), device=device) * 0.1
         self.v = torch.randn((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
         self.g[:, 2] -= 9.80665

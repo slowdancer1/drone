@@ -77,7 +77,7 @@ for i in range(10000):
         x = torch.clamp(1 / depth - 1, -1, 6)
         if i == 0 or (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
-        target_v = p_target - env.quad.v
+        target_v = p_target - env.quad.p
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
         state = torch.cat([
@@ -104,13 +104,12 @@ for i in range(10000):
 
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
-    loss_acc = (v_history[1:] - v_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1)
     x_l = distance.clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
-    loss = loss_v + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
+    loss = loss_v + loss_d_ctrl + 10 * loss_obj_avoidance
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')
@@ -121,7 +120,6 @@ for i in range(10000):
         writer.add_scalar('loss', loss, i)
         writer.add_scalar('loss_v', loss_v, i)
         writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
-        writer.add_scalar('loss_acc', loss_acc, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
         if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
