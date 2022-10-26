@@ -1,5 +1,6 @@
 #pragma once
 
+#include <random>
 #include <vector>
 #include <iostream>
 #include <pybind11/pybind11.h>
@@ -85,17 +86,18 @@ public:
         glEnable(GL_DEPTH_TEST); //打开深度测试
     };
 
-    void set_obstacles(py::array_t<float_t> obstacles)
+    void set_obstacles()
     {
-        assert(obstacles.shape(0) == n_envs);
         envs.clear();
-        auto r = obstacles.unchecked<3>();
-        envs.resize(r.shape(0));
-        for (py::ssize_t i = 0; i < r.shape(0); i++)
+        envs.resize(n_envs);
+        for (int i = 0; i < n_envs; i++)
         {
-            for (py::ssize_t j = 0; j < r.shape(1); j++)
+            for (int j = 0; j < 40; j++)
             {
-                envs[i].emplace_back(new Ball(), Vector3f{r(i, j, 0), r(i, j, 1), r(i, j, 2)});
+                float x = float(rand()) / RAND_MAX * 30 + 5;
+                float y = float(rand()) / RAND_MAX * 10 - 5;
+                float z = float(rand()) / RAND_MAX * 8 - 2;
+                envs[i].emplace_back(new Ball(), Vector3f{x, y, z});
             }
         }
     };
@@ -124,25 +126,26 @@ public:
             nearest_pt_ptr(i, 1) = camera_p.y;
             nearest_pt_ptr(i, 2) = -1;
 
-            for (auto &ball : envs[i])
-            {
-                ball.draw();
-                Vector3f pt = ball.nearestPt(camera_p);
-                float distance = (pt - camera_p).norm();
-                if (distance < nearest_distance) {
-                    nearest_pt_ptr(i, 0) = pt.x;
-                    nearest_pt_ptr(i, 1) = pt.y;
-                    nearest_pt_ptr(i, 2) = pt.z;
-                    nearest_distance = distance;
-                }
-            }
-
             glBegin(GL_QUADS);
             glVertex3f(-10, -10, -1);
             glVertex3f(40, -10, -1);
             glVertex3f(40, 10, -1);
             glVertex3f(-10, 10, -1);
             glEnd();
+
+            for (auto &ball : envs[i])
+            {
+                ball.draw();
+                Vector3f pt = ball.nearestPt(camera_p);
+                float distance = (pt - camera_p).norm();
+                if (distance < nearest_distance)
+                {
+                    nearest_pt_ptr(i, 0) = pt.x;
+                    nearest_pt_ptr(i, 1) = pt.y;
+                    nearest_pt_ptr(i, 2) = pt.z;
+                    nearest_distance = distance;
+                }
+            }
         }
         glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);

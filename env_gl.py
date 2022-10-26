@@ -54,7 +54,6 @@ class QuadState:
         self.p = torch.zeros((batch_size, 3), device=device)
         self.w = torch.zeros((batch_size, 3), device=device)
         self.v = torch.randn((batch_size, 3), device=device)
-        self.a = torch.zeros((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
         self.g[:, 2] -= 9.80665
         self.thrust = torch.randn((batch_size, 1), device=device) + 9.80665
@@ -75,12 +74,7 @@ class Env:
 
     def reset(self):
         self.quad = QuadState(self.batch_size, self.device)
-        self.obstacles = torch.stack([
-            torch.rand((self.batch_size, 40), device=self.device) * 30 + 5,
-            torch.rand((self.batch_size, 40), device=self.device) * 10 - 5,
-            torch.rand((self.batch_size, 40), device=self.device) * 8 - 2
-        ], -1)
-        self.r.set_obstacles(self.obstacles.cpu().numpy())
+        self.r.set_obstacles()
 
     @torch.no_grad()
     def render(self):

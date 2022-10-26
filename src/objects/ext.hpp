@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <memory>
+#include <cmath>
 #include <vector>
 #ifdef __APPLE__
 #include <GLUT/glut.h>
@@ -80,6 +81,6 @@ public:
     }
     Vector3f nearestPt(Vector3f const &p)
     {
-        return p / p.norm();
+        return p / fmaxf(p.norm(), 1);
     }
 };
