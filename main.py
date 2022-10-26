@@ -20,7 +20,7 @@ class Model(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.stem = nn.Linear(16*9, 256, bias=False)
-        self.v_proj = nn.Linear(5, 256)
+        self.v_proj = nn.Linear(9, 256)
         self.gru = nn.GRUCell(256, 256)
         self.fc = nn.Linear(256, 4, bias=False)
         self.fc.weight.data.mul_(0.01)
@@ -34,13 +34,15 @@ class Model(nn.Module):
         hx = self.gru(x, hx)
         return self.fc(self.drop(hx)).tanh(), hx
 
-# model = Model()
-device = torch.device('cpu')
-model_device = torch.device('cpu')
-model = Model().to(model_device)
+device = torch.device('cuda')
+model_device = torch.device('cuda')
+
+env = Env(args.batch_size, device)
+model = Model()
+model = model.to(model_device)
+
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location=model_device))
-env = Env(args.batch_size, device)
 optim = AdamW(model.parameters(), 5e-4)
 
 ctl_dt = 1 / 15
@@ -57,16 +59,39 @@ for i in range(10000):
     vid = []
     h = None
     loss_obj_avoidance = 0
+    p_target = torch.stack([
+        torch.full((args.batch_size,), 35, device=device),
+        torch.rand((args.batch_size,), device=device) * 10 - 5,
+        torch.full((args.batch_size,), 0, device=device)
+    ], -1)
+
+    loss_v_forward = 0
+    loss_v_drift = 0
+
     for t in range(150):
         color, depth = env.render()
         depth = torch.as_tensor(depth[:, None]).to(model_device)
         x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
-        state = torch.cat([env.quad.v, env.quad.w[:, :2]], -1).to(model_device)
+        target_v = p_target - env.quad.v
+        target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
+        target_v = target_v / target_v_norm
+        target_v_norm = target_v_norm.clamp_max(4)
+        state = torch.cat([
+            env.quad.v,
+            env.quad.w,
+            target_v * target_v_norm
+        ], -1).to(model_device)
         act, h = model(x, state, h)
         act = act.to(device)
         env.step(act, ctl_dt)
+
+        # loss
+        v_forward = torch.sum(target_v * env.quad.v, -1, keepdim=True)
+        v_drift = env.quad.v - v_forward * target_v
+        loss_v_forward += (target_v_norm - v_forward).relu().mean()
+        loss_v_drift += (v_drift / target_v_norm).pow(2).sum(-1).mean()
 
         p_history.append(env.quad.p)
         v_history.append(env.quad.v)
@@ -76,16 +101,9 @@ for i in range(10000):
     v_history = torch.stack(v_history)
     act_history = torch.stack(act_history)
 
-    v_target = torch.randn_like(v_history)
-    v_target[..., 0] += 4
-    v_target[..., 2] = 0
-    v_target_scaler = torch.norm(v_target, 2, -1)
-    v_target /= v_target_scaler[..., None]
-    v_forward = torch.sum(v_target * v_history, -1)
-    v_drift = v_history - v_forward[..., None] * v_target
+    loss_v_forward /= t + 1
+    loss_v_drift /= t + 1
 
-    loss_v_forward = (v_target_scaler - v_forward).relu().mean()
-    loss_v_drift = v_drift.pow(2).sum(-1).mean()
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
     loss_acc = (v_history[1:] - v_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
@@ -95,7 +113,7 @@ for i in range(10000):
     x_l = distance.clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
-    loss = loss_v_forward + loss_v_drift + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
+    loss = loss_v_forward + 10 * loss_v_drift + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')

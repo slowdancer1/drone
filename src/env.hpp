@@ -127,7 +127,7 @@ public:
             glVertex3f(-10, 10, -1);
             glEnd();
         }
-        // glFlush();
+        glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);
         glReadPixels(0, 0, 160, 90 * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb_buf.request().ptr);
         glReadPixels(0, 0, 160, 90 * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth_buf.request().ptr);
