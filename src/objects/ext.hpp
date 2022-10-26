@@ -5,34 +5,52 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <memory>
 #include <vector>
 #ifdef __APPLE__
 #include <GLUT/glut.h>
 #else
 #include <GL/glut.h>
 #endif
-#include "ball.h"
 
+struct Vector3f
+{
+    float x, y, z;
+    float norm() const
+    {
+        return sqrtf(x * x + y * y + z * z);
+    }
+    Vector3f operator+(Vector3f const &s) const { return Vector3f{x + s.x, y + s.y, z + s.z}; }
+    Vector3f operator-(Vector3f const &s) const { return Vector3f{x - s.x, y - s.y, z - s.z}; }
+    Vector3f operator*(float const &s) const { return Vector3f{x * s, y * s, z * s}; }
+    Vector3f operator/(float const &s) const { return Vector3f{x / s, y / s, z / s}; }
+};
 
 class Geometry
 {
 public:
     Geometry(){};
     virtual void draw() = 0;
+    virtual Vector3f nearestPt(Vector3f const &p) = 0;
     virtual ~Geometry(){};
 };
 
 class Mesh
 {
 public:
-    float x, y, z;
-    Geometry &geometry;
-    Mesh(Geometry &geometry, float x, float y, float z) : x(x), y(y), z(z), geometry(geometry) {}
-    void draw(){
+    Vector3f p;
+    std::unique_ptr<Geometry> geometry;
+    Mesh(Geometry *geometry, Vector3f p) : p(p), geometry(geometry) {}
+    void draw()
+    {
         glPushMatrix();
-        glTranslated(x, y, z);
-        geometry.draw();
+        glTranslated(p.x, p.y, p.z);
+        geometry->draw();
         glPopMatrix();
+    }
+    Vector3f nearestPt(Vector3f const &camera)
+    {
+        return geometry->nearestPt(camera - p) + p;
     }
 };
 
@@ -52,12 +70,16 @@ private:
     std::vector<std::vector<float>> mtlSets;
 };
 
-class Ball : Geometry
+class Ball : public Geometry
 {
 public:
     Ball(){};
     void draw()
     {
         glutSolidSphere(1, 10, 8);
+    }
+    Vector3f nearestPt(Vector3f const &p)
+    {
+        return p / p.norm();
     }
 };

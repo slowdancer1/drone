@@ -18,11 +18,11 @@ class EnvRenderer(quadsim.Env):
     def render(self, cameras):
         z_near = 0.01
         z_far = 10.0
-        color, depth = super().render(cameras)
+        color, depth, nearest_pt = super().render(cameras)
         color = np.flip(color, 1)
         depth = np.flip(2 * depth - 1, 1)
         depth = (2.0 * z_near * z_far) / (z_far + z_near - depth * (z_far - z_near))
-        return color, depth
+        return color, depth, nearest_pt
 
 
 # @torch.jit.script
@@ -84,9 +84,8 @@ class Env:
 
     @torch.no_grad()
     def render(self):
-        state = torch.cat([self.quad.p, self.quad.w], -1)
-        color, depth = self.r.render(state.cpu().numpy())
-        return color, depth
+        state = torch.cat([self.quad.p, self.quad.w], -1).cpu()
+        return self.r.render(state.numpy())
 
     def step(self, action, ctl_dt=1/15):
         self.quad.run(action, ctl_dt)

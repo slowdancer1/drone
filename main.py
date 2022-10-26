@@ -56,6 +56,7 @@ for i in range(10000):
     p_history = []
     v_history = []
     act_history = []
+    nearest_pt_history = []
     vid = []
     h = None
     loss_obj_avoidance = 0
@@ -68,7 +69,10 @@ for i in range(10000):
     loss_v = 0
 
     for t in range(150):
-        color, depth = env.render()
+        color, depth, nearest_pt = env.render()
+        p_history.append(env.quad.p)
+        nearest_pt_history.append(nearest_pt.copy())
+
         depth = torch.as_tensor(depth[:, None]).to(model_device)
         x = torch.clamp(1 / depth - 1, -1, 6)
         if (i + 1) % 100 == 0 and t % 3 == 0:
@@ -88,13 +92,13 @@ for i in range(10000):
         # loss
         loss_v += F.mse_loss(env.quad.v, target_v)
 
-        p_history.append(env.quad.p)
         v_history.append(env.quad.v)
         act_history.append(act)
 
     p_history = torch.stack(p_history)
     v_history = torch.stack(v_history)
     act_history = torch.stack(act_history)
+    nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history)).to(device)
 
     loss_v /= t + 1
 
@@ -102,8 +106,7 @@ for i in range(10000):
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
     loss_acc = (v_history[1:] - v_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
 
-    distance = (p_history[:, :, None] - env.obstacles).pow(2).sum(-1).sqrt().add(-1)
-    distance = torch.cat([distance, p_history[..., -1:] + 1], -1).min(-1).values
+    distance = torch.norm(p_history - nearest_pt_history, 2, -1)
     x_l = distance.clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
