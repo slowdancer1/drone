@@ -110,7 +110,7 @@ for i in range(10000):
     x_l = distance.clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
-    loss = loss_v + loss_d_ctrl + 0.01 * loss_acc + 10 * loss_obj_avoidance
+    loss = loss_v + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')
@@ -123,7 +123,6 @@ for i in range(10000):
         writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
         writer.add_scalar('loss_acc', loss_acc, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
-        writer.add_scalar('t', t, i)
         if (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=5)
