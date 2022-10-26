@@ -1,5 +1,4 @@
-#ifndef EXTSHAPE_H
-#define EXTSHAPE_H
+#pragma once
 
 #include <cmath>
 #include <fstream>
@@ -13,6 +12,29 @@
 #include <GL/glut.h>
 #endif
 #include "ball.h"
+
+
+class Geometry
+{
+public:
+    Geometry(){};
+    virtual void draw() = 0;
+    virtual ~Geometry(){};
+};
+
+class Mesh
+{
+public:
+    float x, y, z;
+    Geometry &geometry;
+    Mesh(Geometry &geometry, float x, float y, float z) : x(x), y(y), z(z), geometry(geometry) {}
+    void draw(){
+        glPushMatrix();
+        glTranslated(x, y, z);
+        geometry.draw();
+        glPopMatrix();
+    }
+};
 
 class ExtShape
 {
@@ -30,23 +52,12 @@ private:
     std::vector<std::vector<float>> mtlSets;
 };
 
-class Ball
+class Ball : Geometry
 {
-private:
-    float x, y, z;
-    ExtShape shape;
-
 public:
-    Ball(float x, float y, float z) : x(x), y(y), z(z), shape(BALL_3D_OBJ, BALL_3D_MTL) {}
+    Ball(){};
     void draw()
     {
-        glPushMatrix();
-        glTranslated(x, y, z);
-        // glColor3f(0.5, 0.5, 0.5);
-        // shape.draw();
         glutSolidSphere(1, 10, 8);
-        glPopMatrix();
     }
 };
-
-#endif
