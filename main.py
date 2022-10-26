@@ -65,8 +65,7 @@ for i in range(10000):
         torch.full((args.batch_size,), 0, device=device)
     ], -1)
 
-    loss_v_forward = 0
-    loss_v_drift = 0
+    loss_v = 0
 
     for t in range(150):
         color, depth = env.render()
@@ -76,22 +75,18 @@ for i in range(10000):
             vid.append(color[0].copy())
         target_v = p_target - env.quad.v
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-        target_v = target_v / target_v_norm
-        target_v_norm = target_v_norm.clamp_max(4)
+        target_v = target_v / target_v_norm * target_v_norm.clamp_max(4)
         state = torch.cat([
             env.quad.v,
             env.quad.w,
-            target_v * target_v_norm
+            target_v
         ], -1).to(model_device)
         act, h = model(x, state, h)
         act = act.to(device)
         env.step(act, ctl_dt)
 
         # loss
-        v_forward = torch.sum(target_v * env.quad.v, -1, keepdim=True)
-        v_drift = env.quad.v - v_forward * target_v
-        loss_v_forward += (target_v_norm - v_forward).relu().mean()
-        loss_v_drift += (v_drift / target_v_norm).pow(2).sum(-1).mean()
+        loss_v += F.mse_loss(env.quad.v, target_v)
 
         p_history.append(env.quad.p)
         v_history.append(env.quad.v)
@@ -101,8 +96,7 @@ for i in range(10000):
     v_history = torch.stack(v_history)
     act_history = torch.stack(act_history)
 
-    loss_v_forward /= t + 1
-    loss_v_drift /= t + 1
+    loss_v /= t + 1
 
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
@@ -113,7 +107,7 @@ for i in range(10000):
     x_l = distance.clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
-    loss = loss_v_forward + 10 * loss_v_drift + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
+    loss = loss_v + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')
@@ -122,8 +116,7 @@ for i in range(10000):
     optim.step()
     with torch.no_grad():
         writer.add_scalar('loss', loss, i)
-        writer.add_scalar('loss_v_forward', loss_v_forward, i)
-        writer.add_scalar('loss_v_drift', loss_v_drift, i)
+        writer.add_scalar('loss_v', loss_v, i)
         writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
         writer.add_scalar('loss_acc', loss_acc, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
