@@ -27,7 +27,7 @@ class EnvRenderer(quadsim.Env):
 
 # @torch.jit.script
 def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay):
-    alpha = 0.7 ** ctl_dt
+    alpha = 0.6 ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
     self_v = alpha * self_v + (1 - alpha) * self_v.detach()
     self_w = alpha * self_w + (1 - alpha) * self_w.detach()

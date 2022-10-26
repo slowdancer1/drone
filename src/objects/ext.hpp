@@ -74,14 +74,14 @@ private:
 class Ball : public Geometry
 {
 public:
-    Ball(){};
+    float r;
+    Ball(float r) : r(r) {};
     void draw()
     {
-        glutSolidSphere(1, 10, 8);
+        glutSolidSphere(r, 10, 8);
     }
     Vector3f nearestPt(Vector3f const &p)
     {
-        return p / fmaxf(p.norm(), 1);
+        return p / fmaxf(p.norm(), 1) * r;
     }
 };
-+

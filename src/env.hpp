@@ -97,7 +97,8 @@ public:
                 float x = float(rand()) / RAND_MAX * 30 + 5;
                 float y = float(rand()) / RAND_MAX * 10 - 5;
                 float z = float(rand()) / RAND_MAX * 8 - 2;
-                envs[i].emplace_back(new Ball(), Vector3f{x, y, z});
+                float r = float(rand()) / RAND_MAX * 2;
+                envs[i].emplace_back(new Ball(r), Vector3f{x, y, z});
             }
         }
     };

@@ -61,7 +61,7 @@ for i in range(10000):
     h = None
     loss_obj_avoidance = 0
     p_target = torch.stack([
-        torch.full((args.batch_size,), 35, device=device),
+        torch.rand((args.batch_size,), device=device) * 10 + 20,
         torch.rand((args.batch_size,), device=device) * 10 - 5,
         torch.full((args.batch_size,), 0, device=device)
     ], -1)
@@ -75,7 +75,7 @@ for i in range(10000):
 
         depth = torch.as_tensor(depth[:, None]).to(model_device)
         x = torch.clamp(1 / depth - 1, -1, 6)
-        if (i + 1) % 100 == 0 and t % 3 == 0:
+        if i == 0 or (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
         target_v = p_target - env.quad.v
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
@@ -123,7 +123,7 @@ for i in range(10000):
         writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
         writer.add_scalar('loss_acc', loss_acc, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
-        if (i + 1) % 500 == 0:
+        if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=5)
             fig = plt.figure()
@@ -133,4 +133,11 @@ for i in range(10000):
             plt.plot(v_history[:, 0, 2], label='z')
             plt.legend()
             writer.add_figure('v', fig, i)
+            fig = plt.figure()
+            p_history = p_history.cpu()
+            plt.plot(p_history[:, 0, 0], label='x')
+            plt.plot(p_history[:, 0, 1], label='y')
+            plt.plot(p_history[:, 0, 2], label='z')
+            plt.legend()
+            writer.add_figure('p', fig, i)
             torch.save(model.state_dict(), os.path.join(writer.logdir, f'checkpoint{i//100:04d}.pth'))
