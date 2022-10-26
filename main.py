@@ -79,7 +79,7 @@ for i in range(10000):
             vid.append(color[0].copy())
         target_v = p_target - env.quad.v
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-        target_v = target_v / target_v_norm * target_v_norm.clamp_max(4)
+        target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
         state = torch.cat([
             env.quad.v,
             env.quad.w,
@@ -90,7 +90,7 @@ for i in range(10000):
         env.step(act, ctl_dt)
 
         # loss
-        loss_v += F.mse_loss(env.quad.v, target_v)
+        loss_v += F.smooth_l1_loss(env.quad.v, target_v)
 
         v_history.append(env.quad.v)
         act_history.append(act)
@@ -110,7 +110,7 @@ for i in range(10000):
     x_l = distance.clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
-    loss = loss_v + loss_d_ctrl + 0.01 * loss_acc + 25 * loss_obj_avoidance
+    loss = loss_v + loss_d_ctrl + 0.01 * loss_acc + 10 * loss_obj_avoidance
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')

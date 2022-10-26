@@ -84,3 +84,4 @@ public:
         return p / fmaxf(p.norm(), 1);
     }
 };
++
