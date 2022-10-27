@@ -104,7 +104,7 @@ public:
     };
 
     std::tuple<py::array_t<uint8_t>, py::array_t<float_t>, py::array_t<float_t>> render(
-        py::array_t<float_t> cameras)
+        py::array_t<float_t> cameras, bool flush)
     {
         assert(cameras.shape(0) == n_envs);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -148,7 +148,8 @@ public:
                 }
             }
         }
-        glFlush();
+        if (flush)
+            glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);
         glReadPixels(0, 0, 160, 90 * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb.request().ptr);
         glReadPixels(0, 0, 160, 90 * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth.request().ptr);

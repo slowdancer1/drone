@@ -48,9 +48,8 @@ optim = AdamW(model.parameters(), 5e-4)
 ctl_dt = 1 / 15
 
 writer = SummaryWriter(flush_secs=1)
-p_ctl_pts = torch.linspace(0, ctl_dt, 8, device=device).reshape(-1, 1, 1, 1)
 
-for i in range(10000):
+for i in range(20000):
     t0 = time.time()
     env.reset()
     p_history = []
@@ -102,11 +101,11 @@ for i in range(10000):
 
     loss_v /= t + 1
 
-
-    loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt).pow(2).sum(-1).mean()
+    loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
+    loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1)
-    x_l = distance.clamp(0.1, 1)
+    x_l = distance.mul(2).clamp(0.1, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
     loss = loss_v + loss_d_ctrl + 10 * loss_obj_avoidance

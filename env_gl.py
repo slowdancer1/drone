@@ -18,7 +18,7 @@ class EnvRenderer(quadsim.Env):
     def render(self, cameras):
         z_near = 0.01
         z_far = 10.0
-        color, depth, nearest_pt = super().render(cameras)
+        color, depth, nearest_pt = super().render(cameras, False)
         color = np.flip(color, 1)
         depth = np.flip(2 * depth - 1, 1)
         depth = (2.0 * z_near * z_far) / (z_far + z_near - depth * (z_far - z_near))
