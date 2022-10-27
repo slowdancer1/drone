@@ -33,6 +33,8 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay)
     self_w = alpha * self_w + (1 - alpha) * self_w.detach()
 
     alpha = rate_ctl_delay ** (ctl_dt / rate_ctl_delay)
+    action = action.clone()
+    action[:, 2] += self_w[:, 2]
     self_w = action[:, :3] * (1 - alpha) + self_w * alpha
     cx, cy, cz = torch.cos(self_w).unbind(-1)
     sx, sy, sz = torch.sin(self_w).unbind(-1)

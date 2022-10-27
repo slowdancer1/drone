@@ -11,6 +11,8 @@ from tensorboardX import SummaryWriter
 
 import argparse
 
+from ratation import _axis_angle_rotation
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
 parser.add_argument('--batch_size', type=int, default=16)
@@ -66,6 +68,7 @@ for i in range(20000):
     ], -1)
 
     loss_v = 0
+    loss_look_ahead = 0
 
     for t in range(150):
         color, depth, nearest_pt = env.render()
@@ -77,19 +80,23 @@ for i in range(20000):
         if i == 0 or (i + 1) % 100 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
         target_v = p_target - env.quad.p
+        R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
+        loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
+        local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
+        local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
         state = torch.cat([
-            env.quad.v,
+            local_v,
             env.quad.w,
-            target_v
+            local_v_target
         ], -1).to(model_device)
         act, h = model(x, state, h)
         act = act.to(device)
         env.step(act, ctl_dt)
 
         # loss
-        loss_v += F.smooth_l1_loss(env.quad.v, target_v, beta=0.1)
+        loss_v += F.smooth_l1_loss(local_v, local_v_target, beta=0.1) * 3
 
         v_history.append(env.quad.v)
         act_history.append(act)
@@ -100,15 +107,16 @@ for i in range(20000):
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history)).to(device)
 
     loss_v /= t + 1
+    loss_look_ahead /= t + 1
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1)
-    x_l = distance.mul(2).clamp(0.1, 1)
+    x_l = distance.clamp(0.01, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
-    loss = loss_v + loss_d_ctrl + 10 * loss_obj_avoidance
+    loss = loss_v + loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')
@@ -119,6 +127,7 @@ for i in range(20000):
         writer.add_scalar('loss', loss, i)
         writer.add_scalar('loss_v', loss_v, i)
         writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
+        writer.add_scalar('loss_look_ahead', loss_look_ahead, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
         if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
