@@ -89,7 +89,7 @@ for i in range(20000):
         env.step(act, ctl_dt)
 
         # loss
-        loss_v += F.smooth_l1_loss(env.quad.v, target_v)
+        loss_v += F.smooth_l1_loss(env.quad.v, target_v, beta=0.1)
 
         v_history.append(env.quad.v)
         act_history.append(act)
