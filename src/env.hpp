@@ -99,13 +99,17 @@ public:
                 float z = float(rand()) / RAND_MAX * 8 - 2;
                 float r = float(rand()) / RAND_MAX + 0.5;
                 Geometry *m;
-                switch (rand() % 2)
+                switch (rand() % 3)
                 {
                 case 0:
                     m = new Cube(r);
                     break;
                 case 1:
                     m = new Ball(r);
+                    break;
+                case 2:
+                    m = new Cone(r);
+                    z = -1;
                     break;
 
                 default:
@@ -135,10 +139,10 @@ public:
             set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5));
 
             Vector3f camera_p{r(i, 0), r(i, 1), r(i, 2)};
-            float nearest_distance = fabs(camera_p.z + 1);
             nearest_pt_ptr(i, 0) = camera_p.x;
             nearest_pt_ptr(i, 1) = camera_p.y;
-            nearest_pt_ptr(i, 2) = -1;
+            nearest_pt_ptr(i, 2) = fmin(-1, camera_p.z);
+            float nearest_distance = fabs(camera_p.z - fmin(-1, camera_p.z));
 
             glBegin(GL_QUADS);
             glVertex3f(-10, -10, -1);
