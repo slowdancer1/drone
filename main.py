@@ -7,6 +7,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from tensorboardX import SummaryWriter
 
 import argparse
@@ -16,6 +17,8 @@ from ratation import _axis_angle_rotation
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
 parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--num_iters', type=int, default=50000)
+parser.add_argument('--lr', type=float, default=5e-4)
 args = parser.parse_args()
 
 class Model(nn.Module):
@@ -45,13 +48,14 @@ model = model.to(model_device)
 
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location=model_device))
-optim = AdamW(model.parameters(), 5e-4)
+optim = AdamW(model.parameters(), args.lr)
+sched = CosineAnnealingLR(optim, args.num_iters, args.lr * 0.01)
 
 ctl_dt = 1 / 15
 
-writer = SummaryWriter(flush_secs=1)
+writer = SummaryWriter()
 
-for i in range(20000):
+for i in range(args.num_iters):
     t0 = time.time()
     env.reset()
     p_history = []
@@ -77,7 +81,7 @@ for i in range(20000):
 
         depth = torch.as_tensor(depth[:, None]).to(model_device)
         x = torch.clamp(1 / depth - 1, -1, 6)
-        if i == 0 or (i + 1) % 100 == 0 and t % 3 == 0:
+        if i == 0 or (i + 1) % 1000 == 0 and t % 3 == 0:
             vid.append(color[0].copy())
         target_v = p_target - env.quad.p
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
@@ -120,17 +124,19 @@ for i in range(20000):
     loss = loss_v + loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    print(f'{loss.item():.3f}, time: {time.time()-t0:.2f}s')
+    print(f'{i} {loss.item():.3f}, time: {time.time()-t0:.2f}s')
     optim.zero_grad()
     loss.backward()
     optim.step()
+    sched.step()
+
     with torch.no_grad():
         writer.add_scalar('loss', loss, i)
         writer.add_scalar('loss_v', loss_v, i)
         writer.add_scalar('loss_d_ctrl', loss_d_ctrl, i)
         writer.add_scalar('loss_look_ahead', loss_look_ahead, i)
         writer.add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
-        if i == 0 or (i + 1) % 500 == 0:
+        if i == 0 or (i + 1) % 1000 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=5)
             fig = plt.figure()
