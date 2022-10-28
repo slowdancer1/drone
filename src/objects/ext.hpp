@@ -85,3 +85,26 @@ public:
         return p / fmaxf(p.norm(), r) * r;
     }
 };
+
+class Cube : public Geometry
+{
+public:
+    float a;
+    Cube(float a) : a(a) {};
+    void draw()
+    {
+        glutSolidCube(a);
+    }
+    Vector3f nearestPt(Vector3f const &p)
+    {
+        Vector3f _p = p;
+        float r = a / 2;
+        if (_p.x > r) _p.x = r;
+        if (_p.y > r) _p.y = r;
+        if (_p.z > r) _p.z = r;
+        if (_p.x < -r) _p.x = -r;
+        if (_p.y < -r) _p.y = -r;
+        if (_p.z < -r) _p.z = -r;
+        return _p;
+    }
+};

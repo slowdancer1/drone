@@ -98,7 +98,20 @@ public:
                 float y = float(rand()) / RAND_MAX * 10 - 5;
                 float z = float(rand()) / RAND_MAX * 8 - 2;
                 float r = float(rand()) / RAND_MAX + 0.5;
-                envs[i].emplace_back(new Ball(r), Vector3f{x, y, z});
+                Geometry *m;
+                switch (rand() % 2)
+                {
+                case 0:
+                    m = new Cube(r);
+                    break;
+                case 1:
+                    m = new Ball(r);
+                    break;
+
+                default:
+                    break;
+                }
+                envs[i].emplace_back(m, Vector3f{x, y, z});
             }
         }
     };
