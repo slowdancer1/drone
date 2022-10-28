@@ -96,7 +96,8 @@ for i in range(20000):
         env.step(act, ctl_dt)
 
         # loss
-        loss_v += F.smooth_l1_loss(local_v, local_v_target, beta=0.1) * 3
+        local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
+        loss_v += F.smooth_l1_loss(local_v, local_v_target) * 3
 
         v_history.append(env.quad.v)
         act_history.append(act)
