@@ -34,7 +34,7 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay)
 
     alpha = rate_ctl_delay ** (ctl_dt / rate_ctl_delay)
     action = action.clone()
-    action[:, 2] += self_w[:, 2]
+    action[:, 2] += self_w[:, 2] * ctl_dt
     self_w = action[:, :3] * (1 - alpha) + self_w * alpha
     cx, cy, cz = torch.cos(self_w).unbind(-1)
     sx, sy, sz = torch.sin(self_w).unbind(-1)
@@ -53,8 +53,8 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay)
 
 class QuadState:
     def __init__(self, batch_size, device) -> None:
-        self.p = torch.zeros((batch_size, 3), device=device)
-        self.w = torch.randn((batch_size, 3), device=device) * 0.1
+        self.p = torch.randn((batch_size, 3), device=device) * torch.tensor([1.0, 2.0, 0.2], device=device)
+        self.w = torch.randn((batch_size, 3), device=device) * 0.2
         self.v = torch.randn((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
         self.g[:, 2] -= 9.80665

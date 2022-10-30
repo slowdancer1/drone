@@ -38,9 +38,11 @@ class Model(nn.Module):
 
 
 # model = Model()
+device = torch.device('cuda')
 model = Model().eval()
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location='cpu'))
+model.to(device)
 
 # connect to the AirSim simulator
 client = airsim.MultirotorClient()
@@ -52,6 +54,7 @@ client.armDisarm(True)
 # Async methods returns Future. Call join() to wait for task to complete.
 client.takeoffAsync().join()
 
+# client.startRecording()
 
 p_target = torch.as_tensor([24., -6, 2])
 h = None
@@ -76,12 +79,14 @@ while True:
         # airsim.ImageRequest("0", airsim.ImageType.DepthVis),
         airsim.ImageRequest("1", airsim.ImageType.DepthPlanar, True)])
     depth = airsim.get_pfm_array(responses[0])
-    depth = torch.as_tensor(depth)[None, None]
+    depth = torch.as_tensor(depth)[None, None].to(device)
 
     x = torch.clamp(1 / depth - 1, -1, 6)
     target_v = p_target - p
     if torch.norm(target_v) < 6:
         p_target = torch.as_tensor([100., -6, 2])
+    if torch.norm(target_v) < 1:
+        break
     R = _axis_angle_rotation('Z',  rpy[None, -1])
     target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
     target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
@@ -91,10 +96,12 @@ while True:
         local_v,
         rpy[None],
         local_v_target
-    ], -1)
+    ], -1).to(device)
     act, h = model(x, state, h)
     r, p, y, c = act[0].tolist()
     client.moveByRollPitchYawrateThrottleAsync(r, p, y, (c + 1) / 2, 0.5)
 
     sleep(max(0, 1 / 15 - time() + t0))
     print(1 / (time() - t0), torch.norm(target_v))
+
+# client.stopRecording()

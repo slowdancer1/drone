@@ -97,20 +97,20 @@ public:
                 float x = float(rand()) / RAND_MAX * 30 + 5;
                 float y = float(rand()) / RAND_MAX * 10 - 5;
                 float z = float(rand()) / RAND_MAX * 8 - 2;
-                float r = float(rand()) / RAND_MAX + 0.5;
+                float r = float(rand()) / RAND_MAX;
                 Geometry *m;
                 switch (rand() % 5)
                 {
                 case 0:
                 case 1:
-                    m = new Cube(r);
+                    m = new Cube(r * 2 + 0.1);
                     break;
                 case 2:
                 case 3:
-                    m = new Ball(r);
+                    m = new Ball(r * 2 + 0.1);
                     break;
                 case 4:
-                    m = new Cone(r / 2);
+                    m = new Cone(r / 2 + 0.1);
                     z = -1;
                     break;
 
