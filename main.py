@@ -60,7 +60,7 @@ for i in pbar:
     loss_look_ahead = 0
 
     for t in range(150):
-        color, depth, nearest_pt = env.render()
+        color, depth, nearest_pt = env.render(ctl_dt)
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())
 

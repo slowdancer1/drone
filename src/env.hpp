@@ -97,6 +97,12 @@ public:
                 float x = float(rand()) / RAND_MAX * 30 + 2;
                 float y = float(rand()) / RAND_MAX * 10 - 5;
                 float z = float(rand()) / RAND_MAX * 8 - 2;
+                float vx = 0, vy = 0, vz = 0;
+                if (float(rand()) / RAND_MAX < 0.5) {
+                    vx = float(rand()) / RAND_MAX * 2 - 1;
+                    vy = float(rand()) / RAND_MAX * 2 - 1;
+                    vz = float(rand()) / RAND_MAX * 2 - 1;
+                }
                 float r = float(rand()) / RAND_MAX;
                 Geometry *m;
                 switch (rand() % 5)
@@ -117,13 +123,13 @@ public:
                 default:
                     break;
                 }
-                envs[i].emplace_back(m, Vector3f{x, y, z});
+                envs[i].emplace_back(m, Vector3f{x, y, z}, Vector3f{vx, vy, vz});
             }
         }
     };
 
     std::tuple<py::array_t<uint8_t>, py::array_t<float_t>, py::array_t<float_t>> render(
-        py::array_t<float_t> cameras, bool flush)
+        py::array_t<float_t> cameras, float ctl_dt, bool flush)
     {
         assert(cameras.shape(0) == n_envs);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -153,6 +159,10 @@ public:
             glVertex3f(-10, 10, -1);
             glEnd();
 
+            for (auto &ball : envs[i])
+            {
+                ball.update(ctl_dt);
+            }
             for (auto &ball : envs[i])
             {
                 ball.draw();

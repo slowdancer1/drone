@@ -39,15 +39,18 @@ public:
 class Mesh
 {
 public:
-    Vector3f p;
+    Vector3f p, v;
     std::unique_ptr<Geometry> geometry;
-    Mesh(Geometry *geometry, Vector3f p) : p(p), geometry(geometry) {}
+    Mesh(Geometry *geometry, Vector3f p, Vector3f v) : p(p), v(v), geometry(geometry) {}
     void draw()
     {
         glPushMatrix();
         glTranslated(p.x, p.y, p.z);
         geometry->draw();
         glPopMatrix();
+    }
+    void update(float ctl_dt){
+        p = p + v * ctl_dt;
     }
     Vector3f nearestPt(Vector3f const &camera)
     {
