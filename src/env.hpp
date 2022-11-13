@@ -94,7 +94,7 @@ public:
         {
             for (int j = 0; j < 40; j++)
             {
-                float x = float(rand()) / RAND_MAX * 30 + 5;
+                float x = float(rand()) / RAND_MAX * 30 + 2;
                 float y = float(rand()) / RAND_MAX * 10 - 5;
                 float z = float(rand()) / RAND_MAX * 8 - 2;
                 float r = float(rand()) / RAND_MAX;

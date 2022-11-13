@@ -9,35 +9,19 @@ from torch.nn import functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tensorboardX import SummaryWriter
+from tqdm import tqdm
 
 import argparse
+from model import Model
 
 from ratation import _axis_angle_rotation
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--num_iters', type=int, default=50000)
+parser.add_argument('--num_iters', type=int, default=200000)
 parser.add_argument('--lr', type=float, default=5e-4)
 args = parser.parse_args()
-
-class Model(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.stem = nn.Linear(16*9, 256, bias=False)
-        self.v_proj = nn.Linear(9, 256)
-        self.gru = nn.GRUCell(256, 256)
-        self.fc = nn.Linear(256, 4, bias=False)
-        self.fc.weight.data.mul_(0.01)
-        self.drop = nn.Dropout()
-        self.history = []
-
-    def forward(self, x: torch.Tensor, v, hx=None):
-        x = F.max_pool2d(x, 10, 10)
-        x = (self.stem(x.flatten(1)) + self.v_proj(v)).relu()
-        x = self.drop(x)
-        hx = self.gru(x, hx)
-        return self.fc(self.drop(hx)).tanh(), hx
 
 device = torch.device('cuda')
 model_device = torch.device('cuda')
@@ -55,7 +39,8 @@ ctl_dt = 1 / 15
 
 writer = SummaryWriter()
 
-for i in range(args.num_iters):
+pbar = tqdm(range(args.num_iters), ncols=80)
+for i in pbar:
     t0 = time.time()
     env.reset()
     p_history = []
@@ -66,8 +51,8 @@ for i in range(args.num_iters):
     h = None
     loss_obj_avoidance = 0
     p_target = torch.stack([
-        torch.rand((args.batch_size,), device=device) * 10 + 20,
-        torch.rand((args.batch_size,), device=device) * 10 - 5,
+        torch.rand((args.batch_size,), device=device) * 20 + 10,
+        torch.rand((args.batch_size,), device=device) * 12 - 6,
         torch.full((args.batch_size,), 0, device=device)
     ], -1)
 
@@ -124,7 +109,7 @@ for i in range(args.num_iters):
     loss = loss_v + loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    print(f'{i} {loss.item():.3f}, time: {time.time()-t0:.2f}s')
+    pbar.set_description_str(f'loss: {loss.item():.3f}')
     optim.zero_grad()
     loss.backward()
     optim.step()
@@ -153,4 +138,4 @@ for i in range(args.num_iters):
             plt.plot(p_history[:, 0, 2], label='z')
             plt.legend()
             writer.add_figure('p', fig, i)
-            torch.save(model.state_dict(), os.path.join(writer.logdir, f'checkpoint{i//100:04d}.pth'))
+            torch.save(model.state_dict(), os.path.join(writer.logdir, f'checkpoint{i//1000:04d}.pth'))

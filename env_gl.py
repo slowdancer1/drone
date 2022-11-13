@@ -18,14 +18,14 @@ class EnvRenderer(quadsim.Env):
     def render(self, cameras):
         z_near = 0.01
         z_far = 10.0
-        color, depth, nearest_pt = super().render(cameras, False)
+        color, depth, nearest_pt = super().render(cameras, True)
         color = np.flip(color, 1)
         depth = np.flip(2 * depth - 1, 1)
         depth = (2.0 * z_near * z_far) / (z_far + z_near - depth * (z_far - z_near))
         return color, depth, nearest_pt
 
 
-# @torch.jit.script
+@torch.jit.script
 def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay):
     alpha = 0.8 ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
@@ -53,7 +53,7 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, rate_ctl_delay)
 
 class QuadState:
     def __init__(self, batch_size, device) -> None:
-        self.p = torch.randn((batch_size, 3), device=device) * torch.tensor([1.0, 2.0, 0.2], device=device)
+        self.p = torch.zeros((batch_size, 3), device=device)
         self.w = torch.randn((batch_size, 3), device=device) * 0.2
         self.v = torch.randn((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
