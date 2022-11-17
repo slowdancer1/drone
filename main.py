@@ -27,7 +27,7 @@ device = torch.device('cuda')
 model_device = torch.device('cuda')
 
 env = Env(args.batch_size, device)
-model = Model()
+model = Model(10)
 model = model.to(model_device)
 
 if args.resume:
@@ -58,6 +58,7 @@ for i in pbar:
 
     loss_v = 0
     loss_look_ahead = 0
+    margin = torch.rand((args.batch_size,), device=device) * 0.2
 
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
@@ -78,7 +79,8 @@ for i in pbar:
         state = torch.cat([
             local_v,
             env.quad.w,
-            local_v_target
+            local_v_target,
+            margin[:, None]
         ], -1).to(model_device)
         act, h = model(x, state, h)
         act = act.to(device)
@@ -103,7 +105,7 @@ for i in pbar:
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1)
-    x_l = distance.clamp(0.01, 1)
+    x_l = distance.add(-margin).clamp(0.01, 1)
     loss_obj_avoidance = (x_l - x_l.log()).mean() - 1
 
     loss = loss_v + loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead

@@ -4,12 +4,12 @@ from torch.nn import functional as F
 
 
 class Model(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, dim_obs=9, dim_action=4) -> None:
         super().__init__()
         self.stem = nn.Linear(16*9, 256, bias=False)
-        self.v_proj = nn.Linear(9, 256)
+        self.v_proj = nn.Linear(dim_obs, 256)
         self.gru = nn.GRUCell(256, 256)
-        self.fc = nn.Linear(256, 4, bias=False)
+        self.fc = nn.Linear(256, dim_action, bias=False)
         self.fc.weight.data.mul_(0.01)
         self.drop = nn.Dropout()
         self.history = []
