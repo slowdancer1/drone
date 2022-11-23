@@ -49,13 +49,13 @@ private:
     int n_envs;
 
 public:
-    Env(int n_envs) : n_envs(n_envs), rgb({n_envs, 90, 160, 3}), depth({n_envs, 90, 160}), nearest_pt({n_envs, 3})
+    Env(int n_envs) : n_envs(n_envs), rgb({n_envs, 60, 80, 3}), depth({n_envs, 60, 80}), nearest_pt({n_envs, 3})
     {
         int argc = 0;
         glutInit(&argc, nullptr);
         glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
-        glutInitWindowSize(160, 90 * n_envs);
+        glutInitWindowSize(80, 60 * n_envs);
         glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -142,8 +142,8 @@ public:
         for (int i = 0; i < cameras.shape(0); i++)
         {
             glLoadIdentity();
-            glViewport(0, 90 * i, 160, 90);
-            gluPerspective(180 * 0.35, 16. / 9, 0.01f, 10.0f);
+            glViewport(0, 60 * i, 80, 60);
+            gluPerspective(180 * 0.354, 12. / 9, 0.01f, 10.0f);
             set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5));
 
             Vector3f camera_p{r(i, 0), r(i, 1), r(i, 2)};
@@ -180,8 +180,8 @@ public:
         if (flush)
             glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0, 0, 160, 90 * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb.request().ptr);
-        glReadPixels(0, 0, 160, 90 * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth.request().ptr);
+        glReadPixels(0, 0, 80, 60 * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb.request().ptr);
+        glReadPixels(0, 0, 80, 60 * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth.request().ptr);
         return {rgb, depth, nearest_pt};
     };
     ~Env(){};

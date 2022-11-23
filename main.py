@@ -19,7 +19,7 @@ from ratation import _axis_angle_rotation
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--num_iters', type=int, default=200000)
+parser.add_argument('--num_iters', type=int, default=40000)
 parser.add_argument('--lr', type=float, default=5e-4)
 args = parser.parse_args()
 
@@ -59,6 +59,7 @@ for i in pbar:
     loss_v = 0
     loss_look_ahead = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.2
+    max_speed = torch.rand((args.batch_size, 1), device=device) * 5 + 1
 
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
@@ -73,11 +74,11 @@ for i in pbar:
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
         loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-        target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
+        target_v = target_v / target_v_norm * target_v_norm.clamp_max(max_speed)
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
         state = torch.cat([
-            local_v,
+            local_v + torch.randn_like(local_v) * 0.01,
             env.quad.w,
             local_v_target,
             margin[:, None]
