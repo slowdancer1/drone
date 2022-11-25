@@ -5,7 +5,7 @@ import argparse
 
 from env_gl import Env
 from model import Model
-from ratation import _axis_angle_rotation
+from rotation import _axis_angle_rotation
 
 # torch.set_grad_enabled(False)
 

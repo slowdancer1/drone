@@ -85,7 +85,7 @@ public:
     }
     Vector3f nearestPt(Vector3f const &p)
     {
-        return p / fmaxf(p.norm(), r) * r;
+        return p / p.norm() * fminf(p.norm() - 0.001, r);
     }
 };
 
@@ -105,10 +105,8 @@ public:
         if (_p.z > 10) _p.z = 10;
         float _r = r * (1 - _p.z / 10);
         float norm = sqrtf(_p.x * _p.x + _p.y * _p.y);
-        if (norm > _r){
-            _p.x = _p.x / norm * _r;
-            _p.y = _p.y / norm * _r;
-        }
+        _p.x = _p.x / norm * fminf(norm - 0.001, _r);
+        _p.y = _p.y / norm * fminf(norm - 0.001, _r);
         return _p;
     }
 };
@@ -127,11 +125,14 @@ public:
         Vector3f _p = p;
         float r = a / 2;
         if (_p.x > r) _p.x = r;
+        else if (_p.x < -r) _p.x = -r;
+        else _p.x = _p.x > 0 ? _p.x - 0.001 : _p.x + 0.001;
         if (_p.y > r) _p.y = r;
+        else if (_p.y < -r) _p.y = -r;
+        else _p.y = _p.y > 0 ? _p.y - 0.001 : _p.y + 0.001;
         if (_p.z > r) _p.z = r;
-        if (_p.x < -r) _p.x = -r;
-        if (_p.y < -r) _p.y = -r;
-        if (_p.z < -r) _p.z = -r;
+        else if (_p.z < -r) _p.z = -r;
+        else _p.z = _p.z > 0 ? _p.z - 0.001 : _p.z + 0.001;
         return _p;
     }
 };

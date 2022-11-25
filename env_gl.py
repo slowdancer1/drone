@@ -5,14 +5,6 @@ import torch
 import torch.nn.functional as F
 import quadsim
 
-from ratation import (
-    axis_angle_to_quaternion,
-    quaternion_multiply,
-    quaternion_raw_multiply,
-    quaternion_to_up,
-    quaternion_to_yaw,
-    roll_pitch_yaw_to_matrix)
-
 
 class EnvRenderer(quadsim.Env):
     def render(self, cameras, ctl_dt):
@@ -27,7 +19,7 @@ class EnvRenderer(quadsim.Env):
 
 @torch.jit.script
 def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_delay):
-    alpha = 0.8 ** ctl_dt
+    alpha = 0.9 ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
     self_v = alpha * self_v + (1 - alpha) * self_v.detach()
     self_w = alpha * self_w + (1 - alpha) * self_w.detach()
@@ -61,7 +53,7 @@ class QuadState:
         self.g[:, 2] -= 9.80665
         self.thrust = torch.randn((batch_size, 1), device=device) + 9.80665
 
-        self.rate_ctl_delay = 0.1 + 0.2 * torch.rand((batch_size, 1), device=device)
+        self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
 
     def run(self, action, ctl_dt=1/15):
         self.p, self.v, self.w = run(
