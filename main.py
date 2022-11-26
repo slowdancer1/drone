@@ -27,7 +27,7 @@ args = parser.parse_args()
 device = torch.device('cuda')
 model_device = torch.device('cuda')
 
-env = Env(args.batch_size, 60, 45, device)
+env = Env(args.batch_size, 80, 60, device)
 model = Model(10)
 model = model.to(model_device)
 
