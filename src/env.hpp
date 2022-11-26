@@ -49,13 +49,13 @@ private:
     int n_envs;
 
 public:
-    Env(int n_envs) : n_envs(n_envs), rgb({n_envs, 60, 80, 3}), depth({n_envs, 60, 80}), nearest_pt({n_envs, 3})
+    Env(int n_envs, int width, int height) : n_envs(n_envs), rgb({n_envs, height, width, 3}), depth({n_envs, height, width}), nearest_pt({n_envs, 3})
     {
         int argc = 0;
         glutInit(&argc, nullptr);
         glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
-        glutInitWindowSize(80, 60 * n_envs);
+        glutInitWindowSize(width, height * n_envs);
         glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -131,6 +131,8 @@ public:
     std::tuple<py::array_t<uint8_t>, py::array_t<float_t>, py::array_t<float_t>> render(
         py::array_t<float_t> cameras, float ctl_dt, bool flush)
     {
+        int height = depth.shape(1);
+        int width = depth.shape(2);
         assert(cameras.shape(0) == n_envs);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -142,7 +144,7 @@ public:
         for (int i = 0; i < cameras.shape(0); i++)
         {
             glLoadIdentity();
-            glViewport(0, 60 * i, 80, 60);
+            glViewport(0, height * i, width, height);
             gluPerspective(180 * 0.354, 12. / 9, 0.01f, 10.0f);
             set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5));
 
@@ -180,8 +182,8 @@ public:
         if (flush)
             glFlush();
         glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0, 0, 80, 60 * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb.request().ptr);
-        glReadPixels(0, 0, 80, 60 * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth.request().ptr);
+        glReadPixels(0, 0, width, height * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb.request().ptr);
+        glReadPixels(0, 0, width, height * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth.request().ptr);
         return {rgb, depth, nearest_pt};
     };
     ~Env(){};

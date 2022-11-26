@@ -27,7 +27,7 @@ args = parser.parse_args()
 device = torch.device('cuda')
 model_device = torch.device('cuda')
 
-env = Env(args.batch_size, device)
+env = Env(args.batch_size, 60, 45, device)
 model = Model(10)
 model = model.to(model_device)
 
@@ -47,7 +47,7 @@ def add_scalar(k, v, i):
         scaler_q[k].clear()
 
 def barrier(x: torch.Tensor):
-    x.clamp_max(1)
+    x.mul(2).clamp_max(1)
     return torch.where(x > 0.01, x - torch.log(x), -99. * (x - 0.01) + 4.61517).mean() - 1
 
 # def barrier(x: torch.Tensor):
