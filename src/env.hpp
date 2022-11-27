@@ -46,16 +46,16 @@ private:
     py::array_t<float_t> depth;
     py::array_t<float_t> nearest_pt;
     std::vector<env_t> envs;
-    int n_envs;
+    int n_envs_h, n_envs_w, n_envs;
 
 public:
-    Env(int n_envs, int width, int height) : n_envs(n_envs), rgb({n_envs, height, width, 3}), depth({n_envs, height, width}), nearest_pt({n_envs, 3})
+    Env(int n_envs_h, int n_envs_w, int width, int height) : n_envs_h(n_envs_h), n_envs_w(n_envs_w), rgb({n_envs_h, height, n_envs_w, width, 3}), depth({n_envs_h, height, n_envs_w, width}), nearest_pt({n_envs_h * n_envs_w, 3}), n_envs(n_envs_h * n_envs_w)
     {
         int argc = 0;
         glutInit(&argc, nullptr);
         glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
-        glutInitWindowSize(width, height * n_envs);
+        glutInitWindowSize(width * n_envs_w, height * n_envs_h);
         glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -132,7 +132,7 @@ public:
         py::array_t<float_t> cameras, float ctl_dt, bool flush)
     {
         int height = depth.shape(1);
-        int width = depth.shape(2);
+        int width = depth.shape(3);
         assert(cameras.shape(0) == n_envs);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -144,7 +144,7 @@ public:
         for (int i = 0; i < cameras.shape(0); i++)
         {
             glLoadIdentity();
-            glViewport(0, height * i, width, height);
+            glViewport(width * (i % n_envs_w), height * (i / n_envs_w), width, height);
             gluPerspective(180 * 0.354, 12. / 9, 0.01f, 10.0f);
             set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5));
 
@@ -181,9 +181,9 @@ public:
         }
         if (flush)
             glFlush();
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0, 0, width, height * n_envs, GL_BGR, GL_UNSIGNED_BYTE, rgb.request().ptr);
-        glReadPixels(0, 0, width, height * n_envs, GL_DEPTH_COMPONENT, GL_FLOAT, depth.request().ptr);
+        glReadBuffer(GL_FRONT);
+        glReadPixels(0, 0, width * n_envs_w, height * n_envs_h, GL_BGR, GL_UNSIGNED_BYTE, rgb.request().ptr);
+        glReadPixels(0, 0, width * n_envs_w, height * n_envs_h, GL_DEPTH_COMPONENT, GL_FLOAT, depth.request().ptr);
         return {rgb, depth, nearest_pt};
     };
     ~Env(){};

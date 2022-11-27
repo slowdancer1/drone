@@ -6,7 +6,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(quadsim, m) {
     py::class_<Env>(m, "Env")
-        .def(py::init<int, int, int>())
+        .def(py::init<int, int, int, int>())
         .def("render", &Env::render)
         .def("set_obstacles", &Env::set_obstacles);
 }

@@ -19,9 +19,9 @@ from rotation import _axis_angle_rotation
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
-parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--num_iters', type=int, default=40000)
-parser.add_argument('--lr', type=float, default=5e-4)
+parser.add_argument('--batch_size', type=int, default=256)
+parser.add_argument('--num_iters', type=int, default=10000)
+parser.add_argument('--lr', type=float, default=1e-3)
 args = parser.parse_args()
 
 device = torch.device('cuda')
@@ -86,8 +86,8 @@ for i in pbar:
 
         depth = torch.as_tensor(depth[:, None]).to(model_device)
         x = torch.clamp(1 / depth - 1, -1, 6)
-        if i == 0 or (i + 1) % 1000 == 0 and t % 3 == 0:
-            vid.append(color[0].copy())
+        if i == 0 or (i + 1) % 500 == 0 and t % 3 == 0:
+            vid.append(color[-1].copy())
         target_v = p_target - env.quad.p
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
         loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
@@ -129,7 +129,7 @@ for i in pbar:
 
     loss = loss_v + 0.1 * loss_d_ctrl + loss_obj_avoidance + loss_look_ahead
 
-    nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
+    # nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
     optim.zero_grad()
     loss.backward()
@@ -142,7 +142,7 @@ for i in pbar:
         add_scalar('loss_d_ctrl', loss_d_ctrl, i)
         add_scalar('loss_look_ahead', loss_look_ahead, i)
         add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
-        if i == 0 or (i + 1) % 1000 == 0:
+        if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=5)
             fig = plt.figure()
@@ -159,4 +159,4 @@ for i in pbar:
             plt.plot(p_history[:, 0, 2], label='z')
             plt.legend()
             writer.add_figure('p', fig, i)
-            torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
+            torch.save(model.state_dict(), f'checkpoint{i//500:04d}.pth')

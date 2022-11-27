@@ -6,7 +6,7 @@
 
 set -x
 
-DESC=${@:2}
+PY_ARGS=${@:1}
 
 set -o pipefail
 
@@ -32,7 +32,7 @@ echo "Logging git status"
 git status > git_status
 git rev-parse HEAD > git_tag
 git diff > git_diff
-echo $DESC > desc
+echo $PY_ARGS > args
 echo " ...Done"
 
-python main.py |& tee -a output.log
+python main.py ${PY_ARGS} |& tee -a output.log

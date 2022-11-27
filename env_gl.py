@@ -1,3 +1,4 @@
+import math
 from time import time
 from matplotlib import pyplot as plt
 import numpy as np
@@ -11,8 +12,11 @@ class EnvRenderer(quadsim.Env):
         z_near = 0.01
         z_far = 10.0
         color, depth, nearest_pt = super().render(cameras, ctl_dt, True)
+        n, h, n, w, c = color.shape
         color = np.flip(color, 1)
+        color = np.transpose(color, (0, 2, 1, 3, 4)).reshape(n**2, h, w, c)
         depth = np.flip(2 * depth - 1, 1)
+        depth = np.transpose(depth, (0, 2, 1, 3)).reshape(n**2, h, w)
         depth = (2.0 * z_near * z_far) / (z_far + z_near - depth * (z_far - z_near))
         return color, depth, nearest_pt
 
@@ -64,7 +68,9 @@ class Env:
     def __init__(self, batch_size, width, height, device='cpu') -> None:
         self.device = device
         self.batch_size = batch_size
-        self.r = EnvRenderer(batch_size, width, height)
+        n = int(math.sqrt(batch_size))
+        assert n * n == batch_size
+        self.r = EnvRenderer(n, n, width, height)
         self.reset()
 
     def reset(self):
@@ -82,28 +88,9 @@ class Env:
 
 @torch.no_grad()
 def main():
-    env = Env('cpu')
-    color, depth = env.render()
-    plt.imshow(depth)
-    plt.show()
-    t0 = time()
-    for _ in range(250):
-        # w = torch.tensor([0., 0, 0, 0])
-        # env.step(w)
-        color, depth = env.render()
-    print(time() - t0)
-    return
-
-    while True:
-        color, depth = env.render()
-        depth = np.nan_to_num(1 / depth, False, 0, 0, 0)
-        x = torch.clamp(torch.as_tensor(depth) - 1, -1, 5)
-        plt.imshow(x)
-        plt.show()
-        w = torch.tensor([0, 0, 2*torch.pi, 0])
-        env.step(w, 1.1)
-        env.quad.stat()
-
+    env = Env(256, 80, 60, 'cpu')
+    color, depth, _ = env.render(1/15)
+    plt.imsave('1.png', depth.reshape(60*16, 80*16))
 
 if __name__ == '__main__':
     main()
