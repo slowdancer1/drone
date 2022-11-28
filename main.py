@@ -53,6 +53,11 @@ def barrier(x: torch.Tensor):
 # def barrier(x: torch.Tensor):
 #     return 10 * (1 - x).relu().pow(3).mean()
 
+states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.1]
+states_mean = torch.tensor([states_mean], device=device)
+states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 0.069, 2.814, 0.596, 0.227, 0.057]
+states_std = torch.tensor([states_std], device=device)
+
 pbar = tqdm(range(args.num_iters), ncols=80)
 for i in pbar:
     t0 = time.time()
@@ -84,8 +89,7 @@ for i in pbar:
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())
 
-        depth = torch.as_tensor(depth[:, None]).to(model_device)
-        x = torch.clamp(1 / depth - 1, -1, 6)
+        depth = torch.as_tensor(depth[:, None], device=model_device)
         if i == 0 or (i + 1) % 500 == 0 and t % 3 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p
@@ -94,13 +98,20 @@ for i in pbar:
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v = target_v / target_v_norm * target_v_norm.clamp_max(max_speed)
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
+        local_v.add_(torch.randn_like(local_v) * 0.01)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
         state = torch.cat([
-            local_v + torch.randn_like(local_v) * 0.01,
+            local_v,
             env.quad.w,
             local_v_target,
             margin[:, None]
         ], -1).to(model_device)
+
+        # normalize
+        x = 1 / depth.clamp_(0.01, 10) - 0.34
+        x = F.max_pool2d(x, 5, 5)
+        state = (state - states_mean) / states_std
+
         act, h = model(x, state, h)
         act = act.to(device)
         act_buffer.append(act)
@@ -116,7 +127,7 @@ for i in pbar:
     p_history = torch.stack(p_history)
     v_history = torch.stack(v_history)
     act_history = torch.stack(act_history)
-    nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history)).to(device)
+    nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     loss_v /= t + 1
     loss_look_ahead /= t + 1

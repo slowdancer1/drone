@@ -9,7 +9,8 @@ import torch.nn.functional as F
 
 torch.set_grad_enabled(False)
 
-from ratation import _axis_angle_rotation, matrix_to_euler_angles, quaternion_to_matrix
+from rotation import _axis_angle_rotation, matrix_to_euler_angles, quaternion_to_matrix
+from model import Model
 
 
 parser = argparse.ArgumentParser()
@@ -18,28 +19,8 @@ parser.add_argument('--demo', action='store_true')
 args = parser.parse_args()
 
 
-class Model(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.stem = nn.Linear(16*9, 256, bias=False)
-        self.v_proj = nn.Linear(9, 256)
-        self.gru = nn.GRUCell(256, 256)
-        self.fc = nn.Linear(256, 4, bias=False)
-        self.fc.weight.data.mul_(0.01)
-        self.drop = nn.Dropout()
-        self.history = []
-
-    def forward(self, x: torch.Tensor, v, hx=None):
-        x = F.max_pool2d(x, 16, 16)
-        x = (self.stem(x.flatten(1)) + self.v_proj(v)).relu()
-        x = self.drop(x)
-        hx = self.gru(x, hx)
-        return self.fc(self.drop(hx)).tanh(), hx
-
-
-# model = Model()
 device = torch.device('cuda')
-model = Model().eval()
+model = Model(10).eval()
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location='cpu'))
 model.to(device)
@@ -54,10 +35,16 @@ client.armDisarm(True)
 # Async methods returns Future. Call join() to wait for task to complete.
 client.takeoffAsync().join()
 
-# client.startRecording()
+client.startRecording()
+
+states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.1]
+states_mean = torch.tensor([states_mean], device=device)
+states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 0.069, 2.814, 0.596, 0.227, 0.057]
+states_std = torch.tensor([states_std], device=device)
 
 p_target = torch.as_tensor([24., -6, 2])
 h = None
+margin = torch.tensor([0.15])
 while True:
     t0 = time()
     state = client.getMultirotorState()
@@ -71,8 +58,7 @@ while True:
     v = state.kinematics_estimated.linear_velocity
     v = torch.as_tensor([v.x_val, -v.y_val, -v.z_val])
 
-
-    rpy = matrix_to_euler_angles(quaternion_to_matrix(q), "XYZ")
+    rpy = matrix_to_euler_angles(quaternion_to_matrix(q), "ZYX")[[2, 1, 0]]
 
     # take images
     responses = client.simGetImages([
@@ -81,7 +67,6 @@ while True:
     depth = airsim.get_pfm_array(responses[0])
     depth = torch.as_tensor(depth)[None, None].to(device)
 
-    x = torch.clamp(1 / depth - 1, -1, 6)
     target_v = p_target - p
     if torch.norm(target_v) < 6:
         p_target = torch.as_tensor([100., -6, 2])
@@ -95,8 +80,15 @@ while True:
     state = torch.cat([
         local_v,
         rpy[None],
-        local_v_target
+        local_v_target,
+        margin[None]
     ], -1).to(device)
+
+    # normalize
+    x = 1 / depth.clamp_(0.01, 10) - 0.34
+    x = F.adaptive_max_pool2d(x, (12, 16))
+    state = (state - states_mean) / states_std
+
     act, h = model(x, state, h)
     r, p, y, c = act[0].tolist()
     client.moveByRollPitchYawrateThrottleAsync(r, p, y, (c + 1) / 2, 0.5)
@@ -104,4 +96,4 @@ while True:
     sleep(max(0, 1 / 15 - time() + t0))
     print(1 / (time() - t0), torch.norm(target_v))
 
-# client.stopRecording()
+client.stopRecording()
