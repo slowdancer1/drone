@@ -1,5 +1,6 @@
 import os
 from collections import defaultdict
+from random import randint
 import time
 from matplotlib import pyplot as plt
 import numpy as np
@@ -53,9 +54,9 @@ def barrier(x: torch.Tensor):
 # def barrier(x: torch.Tensor):
 #     return 10 * (1 - x).relu().pow(3).mean()
 
-states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.1]
+states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.25]
 states_mean = torch.tensor([states_mean], device=device)
-states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 0.069, 2.814, 0.596, 0.227, 0.057]
+states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 0.069, 2.814, 0.596, 0.227, 0.146]
 states_std = torch.tensor([states_std], device=device)
 
 pbar = tqdm(range(args.num_iters), ncols=80)
@@ -77,13 +78,13 @@ for i in pbar:
 
     loss_v = 0
     loss_look_ahead = 0
-    margin = torch.rand((args.batch_size,), device=device) * 0.2
-    max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 1
+    margin = torch.rand((args.batch_size,), device=device) * 0.5
+    max_speed = torch.rand((args.batch_size, 1), device=device) * 11 + 1
 
-    act_buffer = [
-        torch.randn((args.batch_size, 4), device=device) * 0.1,
-        torch.randn((args.batch_size, 4), device=device) * 0.1,
-    ]
+    act_buffer = []
+    for _ in range(randint(1, 3)):
+        act_buffer.append(torch.randn((args.batch_size, 4), device=device) * 0.01)
+
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
         p_history.append(env.quad.p)
@@ -113,7 +114,8 @@ for i in pbar:
         state = (state - states_mean) / states_std
 
         act, h = model(x, state, h)
-        act = act.to(device)
+        act = act.to(device).clone()
+        act[:, 2] += env.quad.w[:, 2]
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
 
@@ -138,7 +140,7 @@ for i in pbar:
     distance = torch.norm(p_history - nearest_pt_history, 2, -1)
     loss_obj_avoidance = barrier(distance - margin)
 
-    loss = loss_v + 0.1 * loss_d_ctrl + loss_obj_avoidance + loss_look_ahead
+    loss = loss_v + 0.2 * loss_d_ctrl + loss_obj_avoidance + loss_look_ahead
 
     # nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -158,16 +160,16 @@ for i in pbar:
             writer.add_video('color', vid, i, fps=5)
             fig = plt.figure()
             v_history = v_history.cpu()
-            plt.plot(v_history[:, 0, 0], label='x')
-            plt.plot(v_history[:, 0, 1], label='y')
-            plt.plot(v_history[:, 0, 2], label='z')
+            plt.plot(v_history[:, -1, 0], label='x')
+            plt.plot(v_history[:, -1, 1], label='y')
+            plt.plot(v_history[:, -1, 2], label='z')
             plt.legend()
             writer.add_figure('v', fig, i)
             fig = plt.figure()
             p_history = p_history.cpu()
-            plt.plot(p_history[:, 0, 0], label='x')
-            plt.plot(p_history[:, 0, 1], label='y')
-            plt.plot(p_history[:, 0, 2], label='z')
+            plt.plot(p_history[:, -1, 0], label='x')
+            plt.plot(p_history[:, -1, 1], label='y')
+            plt.plot(p_history[:, -1, 2], label='z')
             plt.legend()
             writer.add_figure('p', fig, i)
             torch.save(model.state_dict(), f'checkpoint{i//500:04d}.pth')
