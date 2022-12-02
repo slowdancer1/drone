@@ -11,6 +11,8 @@ cleanup() {
   wait
 }
 
+loginctl unlock-session 1
+
 pushd /mnt/ssd/AirSimNH/LinuxNoEditor/
 bash ./AirSimNH.sh &
 SIM_PID=$!
@@ -18,7 +20,10 @@ trap cleanup EXIT
 popd
 
 sleep 6
-timeout 120 python test_airsim.py --resume $1
+timeout 30 python test_airsim.py --resume $1
 # echo 
 # wait
-echo ~/Documents/AirSim/$(ls ~/Documents/AirSim -t | head -n1)
+sleep 1
+kill $(pgrep -P $SIM_PID)
+sleep 1
+cat ~/Documents/AirSim/$(ls ~/Documents/AirSim -t | head -n1)/images/* | /usr/bin/ffmpeg -r 15 -i - -y demo.mp4

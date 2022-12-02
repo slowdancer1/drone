@@ -20,16 +20,17 @@ from rotation import _axis_angle_rotation
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
-parser.add_argument('--batch_size', type=int, default=256)
-parser.add_argument('--num_iters', type=int, default=10000)
-parser.add_argument('--lr', type=float, default=1e-3)
+parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--num_iters', type=int, default=40000)
+parser.add_argument('--lr', type=float, default=5e-4)
 args = parser.parse_args()
+print(args)
 
 device = torch.device('cuda')
 model_device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
-model = Model(10)
+model = Model()
 model = model.to(model_device)
 
 if args.resume:
@@ -54,9 +55,9 @@ def barrier(x: torch.Tensor):
 # def barrier(x: torch.Tensor):
 #     return 10 * (1 - x).relu().pow(3).mean()
 
-states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.25]
+states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.125]
 states_mean = torch.tensor([states_mean], device=device)
-states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 0.069, 2.814, 0.596, 0.227, 0.146]
+states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
 states_std = torch.tensor([states_std], device=device)
 
 pbar = tqdm(range(args.num_iters), ncols=80)
@@ -78,7 +79,7 @@ for i in pbar:
 
     loss_v = 0
     loss_look_ahead = 0
-    margin = torch.rand((args.batch_size,), device=device) * 0.5
+    margin = torch.rand((args.batch_size,), device=device) * 0.25
     max_speed = torch.rand((args.batch_size, 1), device=device) * 11 + 1
 
     act_buffer = []
@@ -103,7 +104,7 @@ for i in pbar:
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
         state = torch.cat([
             local_v,
-            env.quad.w,
+            env.quad.w[:, :2],
             local_v_target,
             margin[:, None]
         ], -1).to(model_device)
@@ -137,12 +138,12 @@ for i in pbar:
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean() + loss_d_ctrl.abs().sum(-1).mean()
 
-    distance = torch.norm(p_history - nearest_pt_history, 2, -1)
-    loss_obj_avoidance = barrier(distance - margin)
+    distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
+    loss_obj_avoidance = barrier(distance)
 
     loss = loss_v + 0.2 * loss_d_ctrl + loss_obj_avoidance + loss_look_ahead
 
-    # nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
+    nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
     optim.zero_grad()
     loss.backward()
@@ -150,11 +151,13 @@ for i in pbar:
     sched.step()
 
     with torch.no_grad():
-        add_scalar('loss', loss, i)
-        add_scalar('loss_v', loss_v, i)
-        add_scalar('loss_d_ctrl', loss_d_ctrl, i)
-        add_scalar('loss_look_ahead', loss_look_ahead, i)
-        add_scalar('loss_obj_avoidance', loss_obj_avoidance, i)
+        add_scalar('loss', loss.item(), i)
+        add_scalar('loss_v', loss_v.item(), i)
+        add_scalar('loss_d_ctrl', loss_d_ctrl.item(), i)
+        add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
+        add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
+        add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
+        add_scalar('speed', torch.mean(torch.mean(torch.norm(v_history, 2, -1, True), 0) / max_speed).item(), i)
         if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=5)

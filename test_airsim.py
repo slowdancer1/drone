@@ -37,14 +37,14 @@ client.takeoffAsync().join()
 
 client.startRecording()
 
-states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.25]
+states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.125]
 states_mean = torch.tensor([states_mean], device=device)
-states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.146]
+states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
 states_std = torch.tensor([states_std], device=device)
 
 p_target = torch.as_tensor([24., -7, 2])
 h = None
-margin = torch.tensor([0.2])
+margin = torch.tensor([0.25])
 while True:
     t0 = time()
     state = client.getMultirotorState()
@@ -68,13 +68,13 @@ while True:
     depth = torch.as_tensor(depth)[None, None].to(device)
 
     target_v = p_target - p
-    if torch.norm(target_v) < 9:
-        p_target = torch.as_tensor([250., -7, 2])
+    if torch.norm(target_v) < 10:
+        p_target = torch.as_tensor([250., -9, 2])
     if torch.norm(target_v) < 1:
         break
     R = _axis_angle_rotation('Z',  rpy[None, -1])
     target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-    target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
+    target_v = target_v / target_v_norm * target_v_norm.clamp_max(10)
     local_v = torch.squeeze(v[None, None] @ R, 1)
     local_v_target = torch.squeeze(target_v[None, None] @ R, 1)
     state = torch.cat([
@@ -91,10 +91,9 @@ while True:
 
     act, h = model(x, state, h)
     r, p, y, c = act[0].tolist()
-    print([*rpy.tolist(), r, p, y, c])
     client.moveByRollPitchYawThrottleAsync(r, p, rpy[2].item() + y, (c + 1) / 2, 0.5)
 
     sleep(max(0, 1 / 15 - time() + t0))
-    # print(1 / (time() - t0), torch.norm(target_v))
+    print([*rpy.tolist(), r, p, y, c, 1 / (time() - t0)])
 
 client.stopRecording()
