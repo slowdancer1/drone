@@ -109,14 +109,14 @@ public:
                 {
                 case 0:
                 case 1:
-                    m = new Cube(r * 2 + 0.1);
+                    m = new Cube(r + 0.1);
                     break;
                 case 2:
                 case 3:
-                    m = new Ball(r * 2 + 0.1);
+                    m = new Ball(r + 0.1);
                     break;
                 case 4:
-                    m = new Cone(r / 2 + 0.1);
+                    m = new Cone(r / 4 + 0.1);
                     z = -1;
                     break;
 

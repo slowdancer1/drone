@@ -59,6 +59,7 @@ states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.125]
 states_mean = torch.tensor([states_mean], device=device)
 states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
 states_std = torch.tensor([states_std], device=device)
+# speed_weight = torch.tensor([1.5, 0.75, 0.75], device=device)
 
 pbar = tqdm(range(args.num_iters), ncols=80)
 for i in pbar:
@@ -78,6 +79,7 @@ for i in pbar:
     ], -1)
 
     loss_v = 0
+    loss_v_dri = 0
     loss_look_ahead = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.25
     max_speed = torch.rand((args.batch_size, 1), device=device) * 11 + 1
@@ -94,11 +96,12 @@ for i in pbar:
         depth = torch.as_tensor(depth[:, None], device=model_device)
         if i == 0 or (i + 1) % 500 == 0 and t % 3 == 0:
             vid.append(color[-1].copy())
-        target_v = p_target - env.quad.p
+        target_v = p_target - env.quad.p.detach()
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
         loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-        target_v = target_v / target_v_norm * target_v_norm.clamp_max(max_speed)
+        target_v_unit = target_v / target_v_norm
+        target_v = target_v_unit * target_v_norm.clamp_max(max_speed)
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v.add_(torch.randn_like(local_v) * 0.01)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
@@ -122,7 +125,11 @@ for i in pbar:
 
         # loss
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
-        loss_v += F.smooth_l1_loss(local_v, local_v_target) * 3
+        v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
+        v_drift = env.quad.v - v_forward * target_v_unit
+        loss_v += F.smooth_l1_loss(v_forward, max_speed)
+        loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
+        # loss_v += F.smooth_l1_loss(local_v, local_v_target, reduction='none').mul(speed_weight).mean()
 
         v_history.append(env.quad.v)
         act_history.append(act)
@@ -133,15 +140,16 @@ for i in pbar:
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     loss_v /= t + 1
+    loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
-    loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean() + loss_d_ctrl.abs().sum(-1).mean()
+    loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
     loss_obj_avoidance = barrier(distance)
 
-    loss = loss_v + 0.2 * loss_d_ctrl + loss_obj_avoidance + loss_look_ahead
+    loss = loss_v + 0.1 * loss_v_dri + loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -153,6 +161,7 @@ for i in pbar:
     with torch.no_grad():
         add_scalar('loss', loss.item(), i)
         add_scalar('loss_v', loss_v.item(), i)
+        add_scalar('loss_v_dri', loss_v_dri.item(), i)
         add_scalar('loss_d_ctrl', loss_d_ctrl.item(), i)
         add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
         add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
