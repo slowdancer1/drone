@@ -83,8 +83,9 @@ for i in pbar:
     loss_v = 0
     loss_v_dri = 0
     loss_look_ahead = 0
+    loss_cns = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.25
-    max_speed = torch.rand((args.batch_size, 1), device=device) * 11 + 1
+    max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 3
 
     act_buffer = []
     for _ in range(randint(1, 3)):
@@ -119,8 +120,13 @@ for i in pbar:
         x = F.max_pool2d(x, 5, 5)
         state = (state - states_mean) / states_std
 
-        act, h = model(x, state, h)
-        act = act.to(device).clone()
+        _state = state.clone()
+        _state[:, [1, 3, 6]] = -_state[:, [1, 3, 6]]
+        state = torch.cat([state, _state])
+        x = torch.cat([x, torch.flip(x, (-1,))])
+        act_full, h = model(x, state, h)
+        act = act_full[:args.batch_size].to(device).clone()
+        loss_cns += F.mse_loss(*torch.chunk(act_full, 2))
         act[:, 2] += env.quad.w[:, 2]
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
@@ -144,14 +150,18 @@ for i in pbar:
     loss_v /= t + 1
     loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
+    loss_cns /= t + 1
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
     loss_obj_avoidance = barrier(distance)
+    loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), reduction='none')
+    loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
 
-    loss = loss_v + 0.2 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead
+    loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
+        loss_look_ahead + loss_cns + loss_tgt
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -167,6 +177,8 @@ for i in pbar:
         add_scalar('loss_d_ctrl', loss_d_ctrl.item(), i)
         add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
         add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
+        add_scalar('loss_cns', loss_cns.item(), i)
+        add_scalar('loss_tgt', loss_tgt.item(), i)
         add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
         add_scalar('speed', torch.mean(torch.max(torch.norm(v_history, 2, -1, True), 0).values / max_speed).item(), i)
         if i == 0 or (i + 1) % 500 == 0:
