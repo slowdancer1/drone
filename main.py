@@ -149,7 +149,7 @@ for i in pbar:
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
     loss_obj_avoidance = barrier(distance)
 
-    loss = loss_v + 0.1 * loss_v_dri + loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead
+    loss = loss_v + 0.2 * loss_v_dri + loss_d_ctrl + 10 * loss_obj_avoidance + loss_look_ahead
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -166,7 +166,7 @@ for i in pbar:
         add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
         add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
         add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
-        add_scalar('speed', torch.mean(torch.mean(torch.norm(v_history, 2, -1, True), 0) / max_speed).item(), i)
+        # add_scalar('speed', torch.mean(torch.mean(torch.norm(v_history, 2, -1, True), 0) / max_speed).item(), i)
         if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=5)
