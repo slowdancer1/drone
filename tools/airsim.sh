@@ -20,7 +20,7 @@ trap cleanup EXIT
 popd
 
 sleep 6
-timeout 30 python test_airsim.py --resume $1
+timeout 120 python test_airsim.py --resume $1
 # echo 
 # wait
 sleep 1

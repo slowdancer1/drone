@@ -44,7 +44,7 @@ states_std = torch.tensor([states_std], device=device)
 
 p_target = torch.as_tensor([24., -7, 2])
 h = None
-margin = torch.tensor([0.25])
+margin = torch.tensor([0.125])
 while True:
     t0 = time()
     state = client.getMultirotorState()
@@ -87,6 +87,7 @@ while True:
     # normalize
     x = 1 / depth.clamp_(0.01, 10) - 0.34
     x = F.adaptive_max_pool2d(x, (12, 16))
+    _s = state[0].tolist()
     state = (state - states_mean) / states_std
 
     act, h = model(x, state, h)
@@ -94,6 +95,6 @@ while True:
     client.moveByRollPitchYawThrottleAsync(r, p, rpy[2].item() + y, (c + 1) / 2, 0.5)
 
     sleep(max(0, 1 / 15 - time() + t0))
-    print([*rpy.tolist(), r, p, y, c, 1 / (time() - t0)])
+    print([*_s, r, p, y, c, 1 / (time() - t0)])
 
 client.stopRecording()

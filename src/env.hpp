@@ -47,6 +47,7 @@ private:
     py::array_t<float_t> nearest_pt;
     std::vector<env_t> envs;
     int n_envs_h, n_envs_w, n_envs;
+    std::random_device rd;
 
 public:
     Env(int n_envs_h, int n_envs_w, int width, int height) : n_envs_h(n_envs_h), n_envs_w(n_envs_w), rgb({n_envs_h, height, n_envs_w, width, 3}), depth({n_envs_h, height, n_envs_w, width}), nearest_pt({n_envs_h * n_envs_w, 3}), n_envs(n_envs_h * n_envs_w)
@@ -94,18 +95,18 @@ public:
         {
             for (int j = 0; j < 40; j++)
             {
-                float x = float(rand()) / RAND_MAX * 30 + 2;
-                float y = float(rand()) / RAND_MAX * 10 - 5;
-                float z = float(rand()) / RAND_MAX * 8 - 2;
+                float x = float(rd()) / rd.max() * 30 + 2;
+                float y = float(rd()) / rd.max() * 10 - 5;
+                float z = float(rd()) / rd.max() * 8 - 2;
                 float vx = 0, vy = 0, vz = 0;
-                if (float(rand()) / RAND_MAX < 0.5) {
-                    vx = float(rand()) / RAND_MAX * 2 - 1;
-                    vy = float(rand()) / RAND_MAX * 2 - 1;
-                    vz = float(rand()) / RAND_MAX * 2 - 1;
+                if (float(rd()) / rd.max() < 0.5) {
+                    vx = float(rd()) / rd.max() * 2 - 1;
+                    vy = float(rd()) / rd.max() * 2 - 1;
+                    vz = float(rd()) / rd.max() * 2 - 1;
                 }
-                float r = float(rand()) / RAND_MAX;
+                float r = float(rd()) / rd.max();
                 Geometry *m;
-                switch (rand() % 5)
+                switch (rd() % 5)
                 {
                 case 0:
                 case 1:
