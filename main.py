@@ -30,8 +30,6 @@ device = torch.device('cuda')
 model_device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
-env.quad.g.fill_(0)
-env.quad.g[:, 2] -= 9.80665
 model = Model()
 model = model.to(model_device)
 
@@ -97,7 +95,7 @@ for i in pbar:
         nearest_pt_history.append(nearest_pt.copy())
 
         depth = torch.as_tensor(depth[:, None], device=model_device)
-        if i == 0 or (i + 1) % 500 == 0 and t % 3 == 0:
+        if i == 0 or (i + 1) % 500 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
@@ -160,7 +158,7 @@ for i in pbar:
     loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), reduction='none')
     loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
 
-    loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
+    loss = 2 * loss_v + 0.5 * loss_v_dri + 2 * loss_d_ctrl + 10 * loss_obj_avoidance + \
         loss_look_ahead + loss_cns + loss_tgt
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
@@ -183,7 +181,7 @@ for i in pbar:
         add_scalar('speed', torch.mean(torch.max(torch.norm(v_history, 2, -1, True), 0).values / max_speed).item(), i)
         if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
-            writer.add_video('color', vid, i, fps=5)
+            writer.add_video('color', vid, i, fps=15)
             fig = plt.figure()
             v_history = v_history.cpu()
             plt.plot(v_history[:, -1, 0], label='x')
