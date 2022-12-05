@@ -158,7 +158,7 @@ for i in pbar:
     loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), reduction='none')
     loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
 
-    loss = 2 * loss_v + 0.5 * loss_v_dri + 2 * loss_d_ctrl + 10 * loss_obj_avoidance + \
+    loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
         loss_look_ahead + loss_cns + loss_tgt
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
