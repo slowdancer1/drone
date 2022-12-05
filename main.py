@@ -73,7 +73,7 @@ for i in pbar:
     h = None
     loss_obj_avoidance = 0
     p_target = torch.stack([
-        torch.rand((args.batch_size,), device=device) * 20 + 10,
+        torch.rand((args.batch_size,), device=device) * 54 + 10,
         torch.rand((args.batch_size,), device=device) * 12 - 6,
         torch.full((args.batch_size,), 0, device=device)
     ], -1)

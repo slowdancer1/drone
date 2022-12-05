@@ -95,7 +95,7 @@ public:
         {
             for (int j = 0; j < 40; j++)
             {
-                float x = float(rd()) / rd.max() * 30 + 2;
+                float x = float(rd()) / rd.max() * 60 + 2;
                 float y = float(rd()) / rd.max() * 10 - 5;
                 float z = float(rd()) / rd.max() * 8 - 2;
                 float vx = 0, vy = 0, vz = 0;
@@ -157,8 +157,8 @@ public:
 
             glBegin(GL_QUADS);
             glVertex3f(-10, -10, -1);
-            glVertex3f(40, -10, -1);
-            glVertex3f(40, 10, -1);
+            glVertex3f(80, -10, -1);
+            glVertex3f(80, 10, -1);
             glVertex3f(-10, 10, -1);
             glEnd();
 

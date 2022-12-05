@@ -19,7 +19,7 @@ parser.add_argument('--demo', action='store_true')
 args = parser.parse_args()
 
 
-device = torch.device('cuda')
+device = torch.device('cpu')
 model = Model().eval()
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location='cpu'))
@@ -42,9 +42,9 @@ states_mean = torch.tensor([states_mean], device=device)
 states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
 states_std = torch.tensor([states_std], device=device)
 
-p_target = torch.as_tensor([24., -7, 2])
+p_target = torch.as_tensor([32., -10, 2])
 h = None
-margin = torch.tensor([0.125])
+margin = torch.tensor([0.1])
 while True:
     t0 = time()
     state = client.getMultirotorState()
@@ -68,13 +68,13 @@ while True:
     depth = torch.as_tensor(depth)[None, None].to(device)
 
     target_v = p_target - p
-    if torch.norm(target_v) < 10:
-        p_target = torch.as_tensor([250., -9, 2])
+    if torch.norm(target_v) < 8:
+        p_target = torch.as_tensor([250., -10, 2])
     if torch.norm(target_v) < 1:
         break
     R = _axis_angle_rotation('Z',  rpy[None, -1])
     target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-    target_v = target_v / target_v_norm * target_v_norm.clamp_max(10)
+    target_v = target_v / target_v_norm * target_v_norm.clamp_max(8)
     local_v = torch.squeeze(v[None, None] @ R, 1)
     local_v_target = torch.squeeze(target_v[None, None] @ R, 1)
     state = torch.cat([
@@ -92,7 +92,7 @@ while True:
 
     act, h = model(x, state, h)
     r, p, y, c = act[0].tolist()
-    client.moveByRollPitchYawThrottleAsync(r, p, rpy[2].item() + y, (c + 1) / 2, 0.5)
+    client.moveByRollPitchYawThrottleAsync(r, p, rpy[2].item() + y / 2, (c + 1) / 2, 0.5)
 
     sleep(max(0, 1 / 15 - time() + t0))
     print([*_s, r, p, y, c, 1 / (time() - t0)])

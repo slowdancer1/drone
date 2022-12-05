@@ -13,7 +13,7 @@ cleanup() {
 
 loginctl unlock-session 1
 
-pushd /mnt/ssd/AirSimNH/LinuxNoEditor/
+pushd ~/Downloads/AirSimNH/LinuxNoEditor/
 bash ./AirSimNH.sh &
 SIM_PID=$!
 trap cleanup EXIT
