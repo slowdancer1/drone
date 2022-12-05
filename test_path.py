@@ -1,199 +1,84 @@
-import os
-from collections import defaultdict
-from random import randint
-import time
 from matplotlib import pyplot as plt
-import numpy as np
-from env_gl import Env
 import torch
-from torch import nn
-from torch.nn import functional as F
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
-from tensorboardX import SummaryWriter
-from tqdm import tqdm
+import torch.nn.functional as F
 
 import argparse
-from model import Model
+import cv2
 
+from env_gl import Env
+from model import Model
 from rotation import _axis_angle_rotation
+
+# torch.set_grad_enabled(False)
+
+states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.125]
+states_mean = torch.tensor([states_mean])
+states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
+states_std = torch.tensor([states_std])
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
-parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--num_iters', type=int, default=40000)
-parser.add_argument('--lr', type=float, default=5e-4)
+parser.add_argument('--demo', action='store_true')
 args = parser.parse_args()
-print(args)
 
-device = torch.device('cuda')
-model_device = torch.device('cuda')
-
-env = Env(args.batch_size, 80, 60, device)
-model = Model()
-model = model.to(model_device)
-
+# model = Model()
+model = Model().eval()
 if args.resume:
-    model.load_state_dict(torch.load(args.resume, map_location=model_device))
-optim = AdamW(model.parameters(), args.lr)
-sched = CosineAnnealingLR(optim, args.num_iters, args.lr * 0.01)
+    model.load_state_dict(torch.load(args.resume, map_location='cpu'))
+env = Env(1, 80, 60, 'cpu')
+env.quad.g.fill_(0)
+env.quad.g[:, 2] -= 9.80665
 
 ctl_dt = 1 / 15
 
-writer = SummaryWriter('.')
-scaler_q = defaultdict(list)
-def add_scalar(k, v, i):
-    scaler_q[k].append(v)
-    if len(scaler_q[k]) >= 20:
-        writer.add_scalar(k, sum(scaler_q[k]) / len(scaler_q[k]), i)
-        scaler_q[k].clear()
-
-def barrier(x: torch.Tensor):
-    x.mul(2).clamp_max(1)
-    return torch.where(x > 0.01, x - torch.log(x), -99. * (x - 0.01) + 4.61517).mean() - 1
-
-# def barrier(x: torch.Tensor):
-#     return 10 * (1 - x).relu().pow(3).mean()
-
-states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.125]
-states_mean = torch.tensor([states_mean], device=device)
-states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
-states_std = torch.tensor([states_std], device=device)
-# speed_weight = torch.tensor([1.5, 0.75, 0.75], device=device)
-
-pbar = tqdm(range(args.num_iters), ncols=80)
-for i in pbar:
-    t0 = time.time()
-    env.reset()
-    p_history = []
-    v_history = []
-    act_history = []
-    nearest_pt_history = []
-    vid = []
-    h = None
-    loss_obj_avoidance = 0
-    p_target = torch.stack([
-        torch.rand((args.batch_size,), device=device) * 20 + 10,
-        torch.rand((args.batch_size,), device=device) * 12 - 6,
-        torch.full((args.batch_size,), 0, device=device)
+real_traj = []
+nearest_pts = []
+env.reset()
+env.quad.p[:] = 0
+env.quad.v[:] = 0
+env.quad.w[:] = 0
+h = None
+loss_obj_avoidance = 0
+p_target = torch.tensor([30, 0, 0])
+margin = torch.tensor([0.125])
+act_buffer = [torch.zeros(1, 4)] * 2
+for t in range(20*15):
+    color, depth, nearest_pt = env.render(ctl_dt)
+    
+    cv2.imwrite(f'figs/{t:03d}.jpg', color[0].copy())
+    depth = torch.as_tensor(depth[:, None])
+    target_v = p_target - env.quad.p
+    R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
+    target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
+    target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
+    local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
+    local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
+    state = torch.cat([
+        local_v,
+        env.quad.w[:, :2],
+        local_v_target,
+        margin[:, None]
     ], -1)
+    print(*state[0].tolist())
 
-    loss_v = 0
-    loss_v_dri = 0
-    loss_look_ahead = 0
-    loss_cns = 0
-    margin = torch.rand((args.batch_size,), device=device) * 0.25
-    max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 3
+    # normalize
+    x = 1 / depth.clamp_(0.01, 10) - 0.34
+    x = F.max_pool2d(x, 5, 5)
+    state = (state - states_mean) / states_std
 
-    act_buffer = []
-    for _ in range(randint(1, 3)):
-        act_buffer.append(torch.randn((args.batch_size, 4), device=device) * 0.01)
+    act, h = model(x, state, h)
+    act[:, 2] += env.quad.w[:, 2]
+    act_buffer.append(act)
+    env.step(act_buffer.pop(0), ctl_dt)
+    nearest_pts.append(nearest_pt[0].tolist())
+    x, y, z = env.quad.p[0].tolist()
+    real_traj.append([x, y, z])
 
-    for t in range(150):
-        color, depth, nearest_pt = env.render(ctl_dt)
-        p_history.append(env.quad.p)
-        nearest_pt_history.append(nearest_pt.copy())
-
-        depth = torch.as_tensor(depth[:, None], device=model_device)
-        if i == 0 or (i + 1) % 500 == 0 and t % 3 == 0:
-            vid.append(color[-1].copy())
-        target_v = p_target - env.quad.p.detach()
-        R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
-        loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
-        target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-        target_v_unit = target_v / target_v_norm
-        target_v = target_v_unit * target_v_norm.clamp_max(max_speed)
-        local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
-        local_v.add_(torch.randn_like(local_v) * 0.01)
-        local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
-        state = torch.cat([
-            local_v,
-            env.quad.w[:, :2],
-            local_v_target,
-            margin[:, None]
-        ], -1).to(model_device)
-
-        # normalize
-        x = 1 / depth.clamp_(0.01, 10) - 0.34
-        x = F.max_pool2d(x, 5, 5)
-        state = (state - states_mean) / states_std
-
-        _state = state.clone()
-        _state[:, [1, 3, 6]] = -_state[:, [1, 3, 6]]
-        state = torch.cat([state, _state])
-        x = torch.cat([x, torch.flip(x, (-1,))])
-        act_full, h = model(x, state, h)
-        act = act_full[:args.batch_size].to(device).clone()
-        loss_cns += F.mse_loss(*torch.chunk(act_full, 2))
-        act[:, 2] += env.quad.w[:, 2]
-        act_buffer.append(act)
-        env.step(act_buffer.pop(0), ctl_dt)
-
-        # loss
-        local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
-        v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
-        v_drift = env.quad.v - v_forward * target_v_unit
-        loss_v += F.smooth_l1_loss(v_forward, max_speed)
-        loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
-        # loss_v += F.smooth_l1_loss(local_v, local_v_target, reduction='none').mul(speed_weight).mean()
-
-        v_history.append(env.quad.v)
-        act_history.append(act)
-
-    p_history = torch.stack(p_history)
-    v_history = torch.stack(v_history)
-    act_history = torch.stack(act_history)
-    nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
-
-    loss_v /= t + 1
-    loss_v_dri /= t + 1
-    loss_look_ahead /= t + 1
-    loss_cns /= t + 1
-
-    loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
-    loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
-
-    distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
-    loss_obj_avoidance = barrier(distance)
-    loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), reduction='none')
-    loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
-
-    loss = 5 * loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
-        loss_look_ahead + loss_cns + loss_tgt
-
-    nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    pbar.set_description_str(f'loss: {loss.item():.3f}')
-    optim.zero_grad()
-    loss.backward()
-    optim.step()
-    sched.step()
-
-    with torch.no_grad():
-        add_scalar('loss', loss.item(), i)
-        add_scalar('loss_v', loss_v.item(), i)
-        add_scalar('loss_v_dri', loss_v_dri.item(), i)
-        add_scalar('loss_d_ctrl', loss_d_ctrl.item(), i)
-        add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
-        add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
-        add_scalar('loss_cns', loss_cns.item(), i)
-        add_scalar('loss_tgt', loss_tgt.item(), i)
-        add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
-        add_scalar('speed', torch.mean(torch.max(torch.norm(v_history, 2, -1, True), 0).values / max_speed).item(), i)
-        if i == 0 or (i + 1) % 500 == 0:
-            vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
-            writer.add_video('color', vid, i, fps=5)
-            fig = plt.figure()
-            v_history = v_history.cpu()
-            plt.plot(v_history[:, -1, 0], label='x')
-            plt.plot(v_history[:, -1, 1], label='y')
-            plt.plot(v_history[:, -1, 2], label='z')
-            plt.legend()
-            writer.add_figure('v', fig, i)
-            fig = plt.figure()
-            p_history = p_history.cpu()
-            plt.plot(p_history[:, -1, 0], label='x')
-            plt.plot(p_history[:, -1, 1], label='y')
-            plt.plot(p_history[:, -1, 2], label='z')
-            plt.legend()
-            writer.add_figure('p', fig, i)
-            torch.save(model.state_dict(), f'checkpoint{i//500:04d}.pth')
+plt.figure(figsize=(3, 10))
+plt.scatter(p_target[1], p_target[0], marker='o', label='Target')
+x, y, _ = zip(*real_traj)
+plt.plot(y, x, label='Trajectory')
+x, y, _ = zip(*[p for p in nearest_pts if p[2] > 0])
+plt.scatter(y, x, marker='x', label='Obstacle', color='black')
+plt.legend()
+plt.savefig('demo.png')
