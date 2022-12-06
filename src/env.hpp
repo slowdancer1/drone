@@ -15,26 +15,27 @@
 
 namespace py = pybind11;
 
-inline void set_camera(
-    double x, double y, double z, double roll, double pitch, double yaw)
+Vector3f set_camera(
+    Vector3f p, float roll, float pitch, float yaw)
 {
-    double cx = cos(roll);
-    double cy = cos(pitch);
-    double cz = cos(yaw);
-    double sx = sin(roll);
-    double sy = sin(pitch);
-    double sz = sin(yaw);
+    float cx = cos(roll);
+    float cy = cos(pitch);
+    float cz = cos(yaw);
+    float sx = sin(roll);
+    float sy = sin(pitch);
+    float sz = sin(yaw);
 
-    double up_x = cx * cz * sy + sx * sz;
-    double up_y = -cz * sx + cx * sy * sz;
-    double up_z = cx * cy;
-    double forward_x = cy * cz;
-    double forward_y = cy * sz;
-    double forward_z = -sy;
+    float up_x = cx * cz * sy + sx * sz;
+    float up_y = -cz * sx + cx * sy * sz;
+    float up_z = cx * cy;
+    float forward_x = cy * cz;
+    float forward_y = cy * sz;
+    float forward_z = -sy;
 
-    gluLookAt(x, y, z,
-              x + forward_x, y + forward_y, z + forward_z,
+    gluLookAt(p.x, p.y, p.z,
+              p.x + forward_x, p.y + forward_y, p.z + forward_z,
               up_x, up_y, up_z);
+    return {forward_x, forward_y, forward_z};
 }
 
 typedef std::vector<Mesh> env_t;
@@ -147,13 +148,36 @@ public:
             glLoadIdentity();
             glViewport(width * (i % n_envs_w), height * (i / n_envs_w), width, height);
             gluPerspective(180 * 0.354, 12. / 9, 0.01f, 10.0f);
-            set_camera(r(i, 0), r(i, 1), r(i, 2), r(i, 3), r(i, 4), r(i, 5));
 
             Vector3f camera_p{r(i, 0), r(i, 1), r(i, 2)};
+            Vector3f forward = set_camera(camera_p, r(i, 3), r(i, 4), r(i, 5));
+
             nearest_pt_ptr(i, 0) = camera_p.x;
             nearest_pt_ptr(i, 1) = camera_p.y;
             nearest_pt_ptr(i, 2) = fmin(-1, camera_p.z);
             float nearest_distance = fabs(camera_p.z - fmin(-1, camera_p.z));
+
+            for (auto &ball : envs[i])
+            {
+                ball.update(ctl_dt);
+            }
+            for (auto &ball : envs[i])
+            {
+                Vector3f pt = ball.nearestPt(camera_p);
+                Vector3f cam2pt = pt - camera_p;
+                float distance = cam2pt.norm();
+                if (distance < nearest_distance)
+                {
+                    nearest_pt_ptr(i, 0) = pt.x;
+                    nearest_pt_ptr(i, 1) = pt.y;
+                    nearest_pt_ptr(i, 2) = pt.z;
+                    nearest_distance = distance;
+                }
+                float forward_distance = cam2pt.dot(forward);
+                if (0 < forward_distance && forward_distance < 10 && distance < 10) {
+                    ball.draw();
+                }
+            }
 
             glBegin(GL_QUADS);
             glVertex3f(-10, -10, -1);
@@ -162,23 +186,6 @@ public:
             glVertex3f(-10, 10, -1);
             glEnd();
 
-            for (auto &ball : envs[i])
-            {
-                ball.update(ctl_dt);
-            }
-            for (auto &ball : envs[i])
-            {
-                ball.draw();
-                Vector3f pt = ball.nearestPt(camera_p);
-                float distance = (pt - camera_p).norm();
-                if (distance < nearest_distance)
-                {
-                    nearest_pt_ptr(i, 0) = pt.x;
-                    nearest_pt_ptr(i, 1) = pt.y;
-                    nearest_pt_ptr(i, 2) = pt.z;
-                    nearest_distance = distance;
-                }
-            }
         }
         if (flush)
             glFlush();

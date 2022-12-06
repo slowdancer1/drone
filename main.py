@@ -49,7 +49,7 @@ def add_scalar(k, v, i):
         scaler_q[k].clear()
 
 def barrier(x: torch.Tensor):
-    x.mul(2).clamp_max(1)
+    x = x.clamp_max(1)
     return torch.where(x > 0.01, x - torch.log(x), -99. * (x - 0.01) + 4.61517).mean() - 1
 
 # def barrier(x: torch.Tensor):
@@ -60,6 +60,16 @@ states_mean = torch.tensor([states_mean], device=device)
 states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
 states_std = torch.tensor([states_std], device=device)
 # speed_weight = torch.tensor([1.5, 0.75, 0.75], device=device)
+
+@torch.jit.script
+def act_split(act_full, w):
+    act, b = torch.chunk(act_full, 2)
+    b = b.clone()
+    b[:, [0, 2]] = -b[:, [0, 2]]
+    cns = F.mse_loss(act, b)
+    act = act.clone()
+    act[:, 2] += w[:, 2]
+    return act, cns
 
 pbar = tqdm(range(args.num_iters), ncols=80)
 for i in pbar:
@@ -118,14 +128,14 @@ for i in pbar:
         x = F.max_pool2d(x, 5, 5)
         state = (state - states_mean) / states_std
 
-        _state = state.clone()
+        _state = state.detach().clone()
         _state[:, [1, 3, 6]] = -_state[:, [1, 3, 6]]
         state = torch.cat([state, _state])
-        x = torch.cat([x, torch.flip(x, (-1,))])
+        x = torch.cat([x, torch.flip(x.detach(), (-1,))])
         act_full, h = model(x, state, h)
-        act = act_full[:args.batch_size].to(device).clone()
-        loss_cns += F.mse_loss(*torch.chunk(act_full, 2))
-        act[:, 2] += env.quad.w[:, 2]
+
+        act, cns = act_split(act_full, env.quad.w)
+        loss_cns += cns
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
 
@@ -155,7 +165,7 @@ for i in pbar:
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
     loss_obj_avoidance = barrier(distance)
-    loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), reduction='none')
+    loss_tgt = F.smooth_l1_loss(p_history.detach(), p_target.broadcast_to(p_history.shape), reduction='none')
     loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
 
     loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \

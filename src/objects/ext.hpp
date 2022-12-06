@@ -21,6 +21,10 @@ struct Vector3f
     {
         return sqrtf(x * x + y * y + z * z);
     }
+    float dot(Vector3f const &s) const
+    {
+        return x * s.x + y * s.y + z * s.z;
+    }
     Vector3f operator+(Vector3f const &s) const { return Vector3f{x + s.x, y + s.y, z + s.z}; }
     Vector3f operator-(Vector3f const &s) const { return Vector3f{x - s.x, y - s.y, z - s.z}; }
     Vector3f operator*(float const &s) const { return Vector3f{x * s, y * s, z * s}; }
