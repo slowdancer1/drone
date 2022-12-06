@@ -62,14 +62,10 @@ states_std = torch.tensor([states_std], device=device)
 # speed_weight = torch.tensor([1.5, 0.75, 0.75], device=device)
 
 @torch.jit.script
-def act_split(act_full, w):
-    act, b = torch.chunk(act_full, 2)
-    b = b.clone()
-    b[:, [0, 2]] = -b[:, [0, 2]]
-    cns = F.mse_loss(act, b)
+def act_proc(act, w):
     act = act.clone()
     act[:, 2] += w[:, 2]
-    return act, cns
+    return act
 
 pbar = tqdm(range(args.num_iters), ncols=80)
 for i in pbar:
@@ -91,7 +87,6 @@ for i in pbar:
     loss_v = 0
     loss_v_dri = 0
     loss_look_ahead = 0
-    loss_cns = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.25
     max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 3
 
@@ -128,14 +123,9 @@ for i in pbar:
         x = F.max_pool2d(x, 5, 5)
         state = (state - states_mean) / states_std
 
-        _state = state.detach().clone()
-        _state[:, [1, 3, 6]] = -_state[:, [1, 3, 6]]
-        state = torch.cat([state, _state])
-        x = torch.cat([x, torch.flip(x.detach(), (-1,))])
         act_full, h = model(x, state, h)
 
-        act, cns = act_split(act_full, env.quad.w)
-        loss_cns += cns
+        act = act_proc(act_full, env.quad.w)
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
 
@@ -143,9 +133,8 @@ for i in pbar:
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
         v_drift = env.quad.v - v_forward * target_v_unit
-        loss_v += F.smooth_l1_loss(v_forward, max_speed)
+        loss_v += F.smooth_l1_loss(v_forward, target_v_norm)
         loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
-        # loss_v += F.smooth_l1_loss(local_v, local_v_target, reduction='none').mul(speed_weight).mean()
 
         v_history.append(env.quad.v)
         act_history.append(act)
@@ -158,7 +147,6 @@ for i in pbar:
     loss_v /= t + 1
     loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
-    loss_cns /= t + 1
 
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
@@ -169,7 +157,7 @@ for i in pbar:
     loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
 
     loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
-        loss_look_ahead + loss_cns + loss_tgt
+        loss_look_ahead + loss_tgt
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -185,7 +173,6 @@ for i in pbar:
         add_scalar('loss_d_ctrl', loss_d_ctrl.item(), i)
         add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
         add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
-        add_scalar('loss_cns', loss_cns.item(), i)
         add_scalar('loss_tgt', loss_tgt.item(), i)
         add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
         add_scalar('speed', torch.mean(torch.max(torch.norm(v_history, 2, -1, True), 0).values / max_speed).item(), i)
