@@ -55,11 +55,10 @@ def barrier(x: torch.Tensor):
 # def barrier(x: torch.Tensor):
 #     return 10 * (1 - x).relu().pow(3).mean()
 
-states_mean = [1.882, 0.0, 0.0, 0.0, 0.0, 3.127, 0.0, 0.0, 0.125]
+states_mean = [3.62, 0, 0, 0, 0, 4.14, 0, 0, 0.125]
 states_mean = torch.tensor([states_mean], device=device)
-states_std = [1.555, 0.496, 0.279, 0.073, 0.174, 2.814, 0.596, 0.227, 0.073]
+states_std = [2.770, 0.367, 0.343, 0.080, 0.240, 4.313, 0.396, 0.327, 0.073]
 states_std = torch.tensor([states_std], device=device)
-# speed_weight = torch.tensor([1.5, 0.75, 0.75], device=device)
 
 @torch.jit.script
 def act_proc(act, w):
@@ -68,6 +67,8 @@ def act_proc(act, w):
     return act
 
 pbar = tqdm(range(args.num_iters), ncols=80)
+# depths = []
+# states = []
 for i in pbar:
     t0 = time.time()
     env.reset()
@@ -119,10 +120,11 @@ for i in pbar:
         ], -1).to(model_device)
 
         # normalize
-        x = 1 / depth.clamp_(0.01, 10) - 0.34
+        x = 3 / depth.clamp_(0.01, 10) - 0.6
         x = F.max_pool2d(x, 5, 5)
+        # states.append(state.detach())
         state = (state - states_mean) / states_std
-
+        # depths.append(depth.clamp_(0.01, 10).detach())
         act_full, h = model(x, state, h)
 
         act = act_proc(act_full, env.quad.w)
@@ -151,13 +153,18 @@ for i in pbar:
     loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
+    act_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
+    jerk_history = (act_history[1:] - act_history[:-1]).div(ctl_dt)
+    loss_d_acc = act_history.pow(2).sum(-1).mean()
+    loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
+
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
     loss_obj_avoidance = barrier(distance)
     loss_tgt = F.smooth_l1_loss(p_history.detach(), p_target.broadcast_to(p_history.shape), reduction='none')
     loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
 
     loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
-        loss_look_ahead + loss_tgt
+        loss_look_ahead + loss_tgt + 0.1 * loss_d_acc + 0.01 * loss_d_jerk
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -174,6 +181,8 @@ for i in pbar:
         add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
         add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
         add_scalar('loss_tgt', loss_tgt.item(), i)
+        add_scalar('loss_d_acc', loss_d_acc.item(), i)
+        add_scalar('loss_d_jerk', loss_d_jerk.item(), i)
         add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
         add_scalar('speed', torch.mean(torch.max(torch.norm(v_history, 2, -1, True), 0).values / max_speed).item(), i)
         if i == 0 or (i + 1) % 500 == 0:

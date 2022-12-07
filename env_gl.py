@@ -22,8 +22,8 @@ class EnvRenderer(quadsim.Env):
 
 
 @torch.jit.script
-def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_delay):
-    alpha = 0.8 ** ctl_dt
+def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_delay, grad_decay=0.8):
+    alpha = grad_decay ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
     self_v = alpha * self_v + (1 - alpha) * self_v.detach()
     self_w = alpha * self_w + (1 - alpha) * self_w.detach()
@@ -48,7 +48,7 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_
 
 
 class QuadState:
-    def __init__(self, batch_size, device) -> None:
+    def __init__(self, batch_size, device, grad_decay=0.8) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
         self.w = torch.randn((batch_size, 3), device=device) * 0.2
         self.v = torch.randn((batch_size, 3), device=device)
@@ -58,10 +58,12 @@ class QuadState:
         self.thrust = torch.randn((batch_size, 1), device=device) + 9.80665
 
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
+        self.grad_decay = grad_decay
 
     def run(self, action, ctl_dt=1/15):
         self.p, self.v, self.w = run(
-            self.p, self.v, self.w, self.g, self.thrust, action, ctl_dt, self.drag, self.rate_ctl_delay)
+            self.p, self.v, self.w, self.g, self.thrust, action, ctl_dt,
+            self.drag, self.rate_ctl_delay, self.grad_decay)
 
 
 class Env:
