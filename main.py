@@ -27,14 +27,13 @@ args = parser.parse_args()
 print(args)
 
 device = torch.device('cuda')
-model_device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
 model = Model()
-model = model.to(model_device)
+model = model.to(device)
 
 if args.resume:
-    model.load_state_dict(torch.load(args.resume, map_location=model_device))
+    model.load_state_dict(torch.load(args.resume, map_location=device))
 optim = AdamW(model.parameters(), args.lr)
 sched = CosineAnnealingLR(optim, args.num_iters, args.lr * 0.01)
 
@@ -100,7 +99,7 @@ for i in pbar:
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())
 
-        depth = torch.as_tensor(depth[:, None], device=model_device)
+        depth = torch.as_tensor(depth[:, None], device=device)
         if i == 0 or (i + 1) % 500 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
@@ -117,7 +116,7 @@ for i in pbar:
             env.quad.w[:, :2],
             local_v_target,
             margin[:, None]
-        ], -1).to(model_device)
+        ], -1)
 
         # normalize
         x = 3 / depth.clamp_(0.01, 10) - 0.6
@@ -164,7 +163,7 @@ for i in pbar:
     loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
 
     loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
-        loss_look_ahead + loss_tgt + 0.1 * loss_d_acc + 0.01 * loss_d_jerk
+        loss_look_ahead + loss_tgt + 0.05 * loss_d_acc + 0.005 * loss_d_jerk
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
