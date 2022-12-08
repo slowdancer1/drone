@@ -29,6 +29,7 @@ print(args)
 device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
+# env.quad.grad_decay = 0.75
 model = Model()
 model = model.to(device)
 
@@ -92,8 +93,12 @@ for i in pbar:
 
     act_buffer = []
     for _ in range(randint(1, 3)):
-        act_buffer.append(torch.randn((args.batch_size, 4), device=device) * 0.01)
-
+        act = torch.cat([
+            env.quad.w[:, :2],
+            torch.randn((args.batch_size, 4), device=device) * 0.01
+        ], -1)
+        act_buffer.append(act)
+    speed_ratios = []
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
         p_history.append(env.quad.p)
@@ -131,8 +136,8 @@ for i in pbar:
         env.step(act_buffer.pop(0), ctl_dt)
 
         # loss
-        local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
+        speed_ratios.append(v_forward.detach() / target_v_norm.detach())
         v_drift = env.quad.v - v_forward * target_v_unit
         loss_v += F.smooth_l1_loss(v_forward, target_v_norm)
         loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
@@ -159,8 +164,10 @@ for i in pbar:
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
     loss_obj_avoidance = barrier(distance)
-    loss_tgt = F.smooth_l1_loss(p_history.detach(), p_target.broadcast_to(p_history.shape), reduction='none')
-    loss_tgt = loss_tgt.sum(-1).min(0).values.mean()
+    loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), reduction='none')
+    loss_tgt, loss_tgt_ind = loss_tgt.sum(-1).min(0)
+    loss_tgt[loss_tgt_ind == 149] = loss_tgt.detach()[loss_tgt_ind == 149]
+    loss_tgt = loss_tgt.mean()
 
     loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
         loss_look_ahead + loss_tgt + 0.05 * loss_d_acc + 0.005 * loss_d_jerk
@@ -183,7 +190,7 @@ for i in pbar:
         add_scalar('loss_d_acc', loss_d_acc.item(), i)
         add_scalar('loss_d_jerk', loss_d_jerk.item(), i)
         add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
-        add_scalar('speed', torch.mean(torch.max(torch.norm(v_history, 2, -1, True), 0).values / max_speed).item(), i)
+        add_scalar('speed', torch.cat(speed_ratios, -1).max(-1).values.clamp_max(1).mean(), i)
         if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             writer.add_video('color', vid, i, fps=15)
