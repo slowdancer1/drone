@@ -16,15 +16,18 @@ from tqdm import tqdm
 
 import argparse
 from model import Model
-
+from eval import eval
 from rotation import _axis_angle_rotation
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume')
 parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--num_iters', type=int, default=40000)
+parser.add_argument('--num_iters', type=int, default=10000)
 parser.add_argument('--lr', type=float, default=5e-4)
 args = parser.parse_args()
+import wandb
+wandb.init(project="drone_rl", config=args.__dict__)
+args = wandb.config
 print(args)
 
 device = torch.device('cuda')
@@ -40,8 +43,13 @@ optim = AdamW(model.parameters(), args.lr)
 sched = CosineAnnealingLR(optim, args.num_iters, args.lr * 0.01)
 
 ctl_dt = 1 / 15
-import wandb
-wandb.init(project="drone_rl", config=args.__dict__)
+
+
+scaler_q = defaultdict(list)
+def smooth_dict(ori_dict):
+    for k, v in ori_dict.items():
+        scaler_q[k].append(v)
+
 
 def barrier(x: torch.Tensor):
     x = x.clamp_max(1)
@@ -99,7 +107,7 @@ for i in pbar:
         nearest_pt_history.append(nearest_pt.copy())
 
         depth = torch.as_tensor(depth[:, None], device=device)
-        if i == 0 or (i + 1) % 500 == 0:
+        if i == 0 or (i + 1) % 250 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
@@ -175,7 +183,9 @@ for i in pbar:
     sched.step()
 
     with torch.no_grad():
-        log_dict = {
+        success = torch.all(distance > 0, 0)
+        speed = torch.cat(speed_ratios, -1).max(-1).values.clamp(0, 1)
+        smooth_dict({
             'loss': loss.item(),
             'loss_v': loss_v.item(),
             'loss_v_dri': loss_v_dri.item(),
@@ -185,9 +195,15 @@ for i in pbar:
             'loss_tgt': loss_tgt.item(),
             'loss_d_acc': loss_d_acc.item(),
             'loss_d_jerk': loss_d_jerk.item(),
-            'success': torch.all(distance > 0, 0).sum().item() / args.batch_size,
-            'speed': torch.cat(speed_ratios, -1).max(-1).values.clamp_max(1).mean()}
-        if i == 0 or (i + 1) % 500 == 0:
+            'success': success.sum().item() / args.batch_size,
+            'speed': speed.mean().item(),
+            'ar': (success * speed).mean().item()})
+        log_dict = {}
+        if (i + 1) % 25 == 0:
+            log_dict.update({k: sum(v) / len(v) for k, v in scaler_q.items()})
+            log_dict['Step'] = i + 1
+            scaler_q.clear()
+        if (i + 1) % 250 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             fig_v, ax = plt.subplots()
             v_history = v_history.cpu()
@@ -207,9 +223,13 @@ for i in pbar:
             ax.plot(act_history[:, -1, 1], label='y')
             ax.plot(act_history[:, -1, 2], label='z')
             ax.legend()
-            torch.save(model.state_dict(), f'checkpoint{i//500:04d}.pth')
             log_dict['demo'] = wandb.Video(vid)
             log_dict['v_history'] = fig_v
             log_dict['p_history'] = fig_p
+        if (i + 1) % 1000 == 0:
+            torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
             log_dict['a_history'] = fig_a
-        wandb.log(log_dict)
+            ar = eval(env, model, args.batch_size, device)
+            log_dict['ar'] = ar
+        if log_dict:
+            wandb.log(log_dict)

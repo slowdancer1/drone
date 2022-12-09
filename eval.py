@@ -85,7 +85,7 @@ def eval_once(env, model, batch_size, device):
     return speed, success
 
 
-def eval(env, model, batch_size, device, num_iters=64):
+def eval(env, model, batch_size, device, num_iters=256):
     res = [eval_once(env, model, batch_size, device) for _ in tqdm(range(num_iters))]
     speed, success = map(torch.cat, zip(*res))
     return torch.mean(speed * success).item()

@@ -27,7 +27,7 @@ done
 
 # run backup
 echo "Backing up to log dir: $OUTPUT_DIR"
-cp -r main.py env_gl.py rotation.py model.py $OUTPUT_DIR
+cp *.py $OUTPUT_DIR
 echo " ...Done"
 
 pushd $OUTPUT_DIR
@@ -40,4 +40,4 @@ git diff > git_diff
 echo $PY_ARGS > args
 echo " ...Done"
 
-python main.py ${PY_ARGS} |& tee -a output.log
+python main.py ${PY_ARGS}
