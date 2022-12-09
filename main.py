@@ -29,7 +29,7 @@ print(args)
 device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
-# env.quad.grad_decay = 0.75
+# env.quad.grad_decay = 0.7
 model = Model()
 model = model.to(device)
 
@@ -169,8 +169,8 @@ for i in pbar:
     loss_tgt[loss_tgt_ind == 149] = loss_tgt.detach()[loss_tgt_ind == 149]
     loss_tgt = loss_tgt.mean()
 
-    loss = loss_v + 0.5 * loss_v_dri + 0.5 * loss_d_ctrl + 10 * loss_obj_avoidance + \
-        loss_look_ahead + loss_tgt + 0.05 * loss_d_acc + 0.005 * loss_d_jerk
+    loss = loss_v + 0.5 * loss_v_dri + loss_d_ctrl + 10 * loss_obj_avoidance + \
+        loss_look_ahead + loss_tgt + 0.1 * loss_d_acc + 0.01 * loss_d_jerk
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
