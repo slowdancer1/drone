@@ -40,14 +40,8 @@ optim = AdamW(model.parameters(), args.lr)
 sched = CosineAnnealingLR(optim, args.num_iters, args.lr * 0.01)
 
 ctl_dt = 1 / 15
-
-writer = SummaryWriter('.')
-scaler_q = defaultdict(list)
-def add_scalar(k, v, i):
-    scaler_q[k].append(v)
-    if len(scaler_q[k]) >= 20:
-        writer.add_scalar(k, sum(scaler_q[k]) / len(scaler_q[k]), i)
-        scaler_q[k].clear()
+import wandb
+wandb.init(project="drone_rl", config=args.__dict__)
 
 def barrier(x: torch.Tensor):
     x = x.clamp_max(1)
@@ -181,32 +175,41 @@ for i in pbar:
     sched.step()
 
     with torch.no_grad():
-        add_scalar('loss', loss.item(), i)
-        add_scalar('loss_v', loss_v.item(), i)
-        add_scalar('loss_v_dri', loss_v_dri.item(), i)
-        add_scalar('loss_d_ctrl', loss_d_ctrl.item(), i)
-        add_scalar('loss_look_ahead', loss_look_ahead.item(), i)
-        add_scalar('loss_obj_avoidance', loss_obj_avoidance.item(), i)
-        add_scalar('loss_tgt', loss_tgt.item(), i)
-        add_scalar('loss_d_acc', loss_d_acc.item(), i)
-        add_scalar('loss_d_jerk', loss_d_jerk.item(), i)
-        add_scalar('success', torch.all(distance > 0, 0).sum().item() / args.batch_size, i)
-        add_scalar('speed', torch.cat(speed_ratios, -1).max(-1).values.clamp_max(1).mean(), i)
+        log_dict = {
+            'loss': loss.item(),
+            'loss_v': loss_v.item(),
+            'loss_v_dri': loss_v_dri.item(),
+            'loss_d_ctrl': loss_d_ctrl.item(),
+            'loss_look_ahead': loss_look_ahead.item(),
+            'loss_obj_avoidance': loss_obj_avoidance.item(),
+            'loss_tgt': loss_tgt.item(),
+            'loss_d_acc': loss_d_acc.item(),
+            'loss_d_jerk': loss_d_jerk.item(),
+            'success': torch.all(distance > 0, 0).sum().item() / args.batch_size,
+            'speed': torch.cat(speed_ratios, -1).max(-1).values.clamp_max(1).mean()}
         if i == 0 or (i + 1) % 500 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
-            writer.add_video('color', vid, i, fps=15)
-            fig = plt.figure()
+            fig_v, ax = plt.subplots()
             v_history = v_history.cpu()
-            plt.plot(v_history[:, -1, 0], label='x')
-            plt.plot(v_history[:, -1, 1], label='y')
-            plt.plot(v_history[:, -1, 2], label='z')
-            plt.legend()
-            writer.add_figure('v', fig, i)
-            fig = plt.figure()
+            ax.plot(v_history[:, -1, 0], label='x')
+            ax.plot(v_history[:, -1, 1], label='y')
+            ax.plot(v_history[:, -1, 2], label='z')
+            ax.legend()
+            fig_p, ax = plt.subplots()
             p_history = p_history.cpu()
-            plt.plot(p_history[:, -1, 0], label='x')
-            plt.plot(p_history[:, -1, 1], label='y')
-            plt.plot(p_history[:, -1, 2], label='z')
-            plt.legend()
-            writer.add_figure('p', fig, i)
+            ax.plot(p_history[:, -1, 0], label='x')
+            ax.plot(p_history[:, -1, 1], label='y')
+            ax.plot(p_history[:, -1, 2], label='z')
+            ax.legend()
+            fig_a, ax = plt.subplots()
+            act_history = act_history.cpu()
+            ax.plot(act_history[:, -1, 0], label='x')
+            ax.plot(act_history[:, -1, 1], label='y')
+            ax.plot(act_history[:, -1, 2], label='z')
+            ax.legend()
             torch.save(model.state_dict(), f'checkpoint{i//500:04d}.pth')
+            log_dict['demo'] = wandb.Video(vid)
+            log_dict['v_history'] = fig_v
+            log_dict['p_history'] = fig_p
+            log_dict['a_history'] = fig_a
+        wandb.log(log_dict)

@@ -12,3 +12,4 @@ AirSim
 exps
 main.py
 *.mp4
+wandb
