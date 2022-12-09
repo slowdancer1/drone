@@ -1,3 +1,4 @@
+import math
 import os
 from collections import defaultdict
 from random import randint
@@ -51,6 +52,11 @@ def add_scalar(k, v, i):
 def barrier(x: torch.Tensor):
     x = x.clamp_max(1)
     return torch.where(x > 0.01, x - torch.log(x), -99. * (x - 0.01) + 4.61517).mean() - 1
+    clamp_min = 0.02
+    val = clamp_min - math.log(clamp_min)
+    grad = 1 - 1 / clamp_min
+    return torch.where(x > clamp_min,
+        x - torch.log(x), grad * (x - clamp_min) + val).mean() - 1
 
 # def barrier(x: torch.Tensor):
 #     return 10 * (1 - x).relu().pow(3).mean()
@@ -59,12 +65,6 @@ states_mean = [3.62, 0, 0, 0, 0, 4.14, 0, 0, 0.125]
 states_mean = torch.tensor([states_mean], device=device)
 states_std = [2.770, 0.367, 0.343, 0.080, 0.240, 4.313, 0.396, 0.327, 0.073]
 states_std = torch.tensor([states_std], device=device)
-
-@torch.jit.script
-def act_proc(act, w):
-    act = act.clone()
-    act[:, 2] += w[:, 2]
-    return act
 
 pbar = tqdm(range(args.num_iters), ncols=80)
 # depths = []
@@ -129,9 +129,8 @@ for i in pbar:
         # states.append(state.detach())
         state = (state - states_mean) / states_std
         # depths.append(depth.clamp_(0.01, 10).detach())
-        act_full, h = model(x, state, h)
+        act, h = model(x, state, h)
 
-        act = act_proc(act_full, env.quad.w)
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
 
@@ -169,7 +168,7 @@ for i in pbar:
     loss_tgt[loss_tgt_ind == 149] = loss_tgt.detach()[loss_tgt_ind == 149]
     loss_tgt = loss_tgt.mean()
 
-    loss = loss_v + 0.5 * loss_v_dri + loss_d_ctrl + 10 * loss_obj_avoidance + \
+    loss = loss_v + 0.2 * loss_v_dri + loss_d_ctrl + 10 * loss_obj_avoidance + \
         loss_look_ahead + loss_tgt + 0.1 * loss_d_acc + 0.01 * loss_d_jerk
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)

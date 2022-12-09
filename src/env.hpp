@@ -94,7 +94,8 @@ public:
         envs.resize(n_envs);
         for (int i = 0; i < n_envs; i++)
         {
-            for (int j = 0; j < 40; j++)
+            int n_obstacles = (rd() % 79) + 1;
+            for (int j = 0; j < n_obstacles; j++)
             {
                 float x = float(rd()) / rd.max() * 60 + 2;
                 float y = float(rd()) / rd.max() * 10 - 5;
@@ -110,10 +111,12 @@ public:
                 switch (rd() % 5)
                 {
                 case 0:
+                    r *= 2;
                 case 1:
                     m = new Cube(r + 0.1);
                     break;
                 case 2:
+                    r *= 2;
                 case 3:
                     m = new Ball(r + 0.1);
                     break;
