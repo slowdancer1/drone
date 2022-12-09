@@ -10,6 +10,10 @@ PY_ARGS=${@:1}
 
 set -o pipefail
 
+pushd src/build
+make -j4
+popd
+
 # OUTPUT_BASE=$(echo $1 | sed -e "s/configs/exps/g" | sed -e "s/.args$//g")
 export DISPLAY=:0
 OUTPUT_BASE=exps

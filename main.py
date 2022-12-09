@@ -130,6 +130,8 @@ for i in pbar:
         state = (state - states_mean) / states_std
         # depths.append(depth.clamp_(0.01, 10).detach())
         act, h = model(x, state, h)
+        act = act.clone()
+        act[:, 2] += env.quad.w[:, 2]
 
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
