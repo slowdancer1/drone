@@ -211,7 +211,7 @@ for i in pbar:
             'loss_d_jerk': loss_d_jerk.item(),
             'success': success.sum().item() / args.batch_size,
             'speed': speed.mean().item(),
-            'ar': (success * speed).mean().item()})
+            'ar_train': (success * speed).mean().item()})
         log_dict = {}
         if (i + 1) % 25 == 0:
             log_dict.update({k: sum(v) / len(v) for k, v in scaler_q.items()})
