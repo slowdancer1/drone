@@ -22,12 +22,13 @@ class Model(nn.Module):
         self.fc = nn.Linear(192, dim_action, bias=False)
         self.fc.weight.data.mul_(0.01)
         self.history = []
+        self.act = nn.LeakyReLU(0.05)
 
     def forward(self, x: torch.Tensor, v, hx=None):
         # x = F.max_pool2d(x, 5, 5)
-        x = (self.stem(x.flatten(1)) + self.v_proj(v)).relu_()
+        x = self.act(self.stem(x.flatten(1)) + self.v_proj(v))
         hx = self.gru(x, hx)
-        return self.fc(hx.relu()).tanh(), hx
+        return self.fc(self.act(hx)).tanh(), hx
 
 
 if __name__ == '__main__':
