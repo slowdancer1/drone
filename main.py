@@ -20,9 +20,17 @@ from eval import eval
 from rotation import _axis_angle_rotation
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--resume')
+parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_iters', type=int, default=10000)
+parser.add_argument('--coef_v', type=float, default=1.0)
+parser.add_argument('--coef_v_dri', type=float, default=0.2)
+parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
+parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
+parser.add_argument('--coef_look_ahead', type=float, default=1.0)
+parser.add_argument('--coef_tgt', type=float, default=1.0)
+parser.add_argument('--coef_d_acc', type=float, default=0.1)
+parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 parser.add_argument('--lr', type=float, default=5e-4)
 args = parser.parse_args()
 import wandb
@@ -172,8 +180,14 @@ for i in pbar:
     loss_tgt[loss_tgt_ind == 149] = loss_tgt.detach()[loss_tgt_ind == 149]
     loss_tgt = loss_tgt.mean()
 
-    loss = loss_v + 0.2 * loss_v_dri + loss_d_ctrl + 10 * loss_obj_avoidance + \
-        loss_look_ahead + loss_tgt + 0.1 * loss_d_acc + 0.01 * loss_d_jerk
+    loss = args.coef_v * loss_v + \
+        args.coef_v_dri * loss_v_dri + \
+        args.coef_d_ctrl * loss_d_ctrl + \
+        args.coef_obj_avoidance * loss_obj_avoidance + \
+        args.coef_look_ahead * loss_look_ahead + \
+        args.coef_tgt * loss_tgt + \
+        args.coef_d_acc * loss_d_acc + \
+        args.coef_d_jerk * loss_d_jerk
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -201,7 +215,7 @@ for i in pbar:
         log_dict = {}
         if (i + 1) % 25 == 0:
             log_dict.update({k: sum(v) / len(v) for k, v in scaler_q.items()})
-            log_dict['Step'] = i + 1
+            log_dict['iter'] = i + 1
             scaler_q.clear()
         if (i + 1) % 250 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
@@ -226,10 +240,14 @@ for i in pbar:
             log_dict['demo'] = wandb.Video(vid)
             log_dict['v_history'] = fig_v
             log_dict['p_history'] = fig_p
+            log_dict['a_history'] = fig_a
         if (i + 1) % 1000 == 0:
             torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
-            log_dict['a_history'] = fig_a
-            ar = eval(env, model, args.batch_size, device)
+            ar = eval(env, model, args.batch_size, device, 64)
             log_dict['ar'] = ar
         if log_dict:
             wandb.log(log_dict)
+
+wandb.log({'ar': eval(env, model, args.batch_size, device)})
+torch.save(model.state_dict(), 'last.pth')
+wandb.save('last.pth', policy='now')

@@ -1,0 +1,32 @@
+project: drone_rl
+program: train.sh
+method: bayes
+metric:
+  name: ar
+  goal: maximize
+parameters:
+  coef_v:
+    values: [0.5, 1.0, 2.0]
+  coef_v_dri:
+    values: [0.1, 0.2, 0.5, 1.0]
+  coef_d_ctrl:
+    values: [0.5, 1.0, 2.0]
+  coef_obj_avoidance:
+    values: [5.0, 10.0, 20.0]
+  coef_look_ahead:
+    values: [0.5, 1.0, 2.0]
+  coef_tgt:
+    values: [0.5, 1.0, 2.0]
+  coef_d_acc:
+    values: [0.5, 0.2, 0.1, 0.05]
+  coef_d_jerk:
+    values: [0.05, 0.02, 0.01, 0.005]
+  lr:
+    values: [2e-4, 5e-4, 1e-3]
+early_terminate:
+  type: hyperband
+command:
+  - ${env}
+  - bash
+  - ${program}
+  - ${args}
