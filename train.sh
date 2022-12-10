@@ -19,7 +19,7 @@ export DISPLAY=:0
 OUTPUT_BASE=exps
 mkdir -p $OUTPUT_BASE
 
-for RUN in $(seq 100); do
+for RUN in $(seq 1000); do
   ls $OUTPUT_BASE | grep run$RUN && continue
   OUTPUT_DIR=$OUTPUT_BASE/run$RUN
   mkdir $OUTPUT_DIR && break

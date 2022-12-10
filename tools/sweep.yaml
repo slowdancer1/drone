@@ -25,6 +25,8 @@ parameters:
     values: [2e-4, 5e-4, 1e-3]
 early_terminate:
   type: hyperband
+  min_iter: 1
+  eta: 2
 command:
   - ${env}
   - bash

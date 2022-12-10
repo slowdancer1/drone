@@ -148,7 +148,10 @@ for i in pbar:
 
         # loss
         v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
-        speed_ratios.append(v_forward.detach() / target_v_norm.detach())
+        with torch.no_grad():
+            speed_ratio = v_forward.div(max_speed).clamp(0, 1)
+            speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
+        speed_ratios.append(speed_ratio)
         v_drift = env.quad.v - v_forward * target_v_unit
         loss_v += F.smooth_l1_loss(v_forward, target_v_norm)
         loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
@@ -198,7 +201,7 @@ for i in pbar:
 
     with torch.no_grad():
         success = torch.all(distance > 0, 0)
-        speed = torch.cat(speed_ratios, -1).max(-1).values.clamp(0, 1)
+        speed = torch.cat(speed_ratios, -1).max(-1).values
         smooth_dict({
             'loss': loss.item(),
             'loss_v': loss_v.item(),
@@ -237,7 +240,7 @@ for i in pbar:
             ax.plot(act_history[:, -1, 1], label='y')
             ax.plot(act_history[:, -1, 2], label='z')
             ax.legend()
-            log_dict['demo'] = wandb.Video(vid)
+            log_dict['demo'] = wandb.Video(vid, fps=15)
             log_dict['v_history'] = fig_v
             log_dict['p_history'] = fig_p
             log_dict['a_history'] = fig_a

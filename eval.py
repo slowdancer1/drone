@@ -46,7 +46,7 @@ def eval_once(env, model, batch_size, device):
         target_v = p_target - env.quad.p
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
-        target_v_unit = target_v / target_v_norm
+        target_v_unit = target_v / max_speed
         target_v = target_v_unit * target_v_norm.clamp_max(max_speed)
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v.add_(torch.randn_like(local_v) * 0.01)
@@ -73,7 +73,9 @@ def eval_once(env, model, batch_size, device):
 
         # loss
         v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
-        speed_ratios.append(v_forward / target_v_norm)
+        speed_ratio = v_forward.div(target_v_norm).clamp(0, 1)
+        speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
+        speed_ratios.append(speed_ratio)
 
     p_history = torch.stack(p_history)
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
@@ -81,7 +83,7 @@ def eval_once(env, model, batch_size, device):
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
 
     success = torch.all(distance > 0, 0)
-    speed = torch.cat(speed_ratios, -1).max(-1).values.clamp(0, 1)
+    speed = torch.cat(speed_ratios, -1).max(-1).values
     return speed, success
 
 
