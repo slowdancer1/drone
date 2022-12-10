@@ -47,7 +47,7 @@ def eval_once(env, model, batch_size, device):
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / max_speed
-        target_v = target_v_unit * target_v_norm.clamp_max(max_speed)
+        target_v = target_v_unit * torch.min(target_v_norm, max_speed)
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v.add_(torch.randn_like(local_v) * 0.01)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)

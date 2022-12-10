@@ -16,13 +16,13 @@ from tqdm import tqdm
 
 import argparse
 from model import Model
-from eval import eval
+# from eval import eval
 from rotation import _axis_angle_rotation
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--num_iters', type=int, default=10000)
+parser.add_argument('--num_iters', type=int, default=5000)
 parser.add_argument('--coef_v', type=float, default=1.0)
 parser.add_argument('--coef_v_dri', type=float, default=0.2)
 parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
@@ -32,6 +32,7 @@ parser.add_argument('--coef_tgt', type=float, default=1.0)
 parser.add_argument('--coef_d_acc', type=float, default=0.1)
 parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 parser.add_argument('--lr', type=float, default=5e-4)
+parser.add_argument('--grad_decay', type=float, default=0.7)
 args = parser.parse_args()
 import wandb
 wandb.init(project="drone_rl", config=args.__dict__)
@@ -41,7 +42,7 @@ print(args)
 device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
-# env.quad.grad_decay = 0.7
+env.quad.grad_decay = args.grad_decay
 model = Model()
 model = model.to(device)
 
@@ -115,14 +116,14 @@ for i in pbar:
         nearest_pt_history.append(nearest_pt.copy())
 
         depth = torch.as_tensor(depth[:, None], device=device)
-        if i == 0 or (i + 1) % 250 == 0:
+        if (i + 1) % 250 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
         loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / target_v_norm
-        target_v = target_v_unit * target_v_norm.clamp_max(max_speed)
+        target_v = target_v_unit * torch.min(target_v_norm, max_speed)
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v.add_(torch.randn_like(local_v) * 0.01)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
@@ -191,6 +192,10 @@ for i in pbar:
         args.coef_tgt * loss_tgt + \
         args.coef_d_acc * loss_d_acc + \
         args.coef_d_jerk * loss_d_jerk
+    
+    if torch.isnan(loss):
+        print("loss is nan, exiting...")
+        exit(1)
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
     pbar.set_description_str(f'loss: {loss.item():.3f}')
@@ -214,12 +219,8 @@ for i in pbar:
             'loss_d_jerk': loss_d_jerk.item(),
             'success': success.sum().item() / args.batch_size,
             'speed': speed.mean().item(),
-            'ar_train': (success * speed).mean().item()})
+            'ar': (success * speed).mean().item()})
         log_dict = {}
-        if (i + 1) % 25 == 0:
-            log_dict.update({k: sum(v) / len(v) for k, v in scaler_q.items()})
-            log_dict['iter'] = i + 1
-            scaler_q.clear()
         if (i + 1) % 250 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             fig_v, ax = plt.subplots()
@@ -244,13 +245,12 @@ for i in pbar:
             log_dict['v_history'] = fig_v
             log_dict['p_history'] = fig_p
             log_dict['a_history'] = fig_a
-        if (i + 1) % 1000 == 0:
             torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
-            ar = eval(env, model, args.batch_size, device, 64)
-            log_dict['ar'] = ar
-        if log_dict:
+            log_dict.update({k: sum(v) / len(v) for k, v in scaler_q.items()})
+            log_dict['iter'] = i + 1
+            scaler_q.clear()
             wandb.log(log_dict)
 
-wandb.log({'ar': eval(env, model, args.batch_size, device)})
+# wandb.log({'ar': eval(env, model, args.batch_size, device)})
 torch.save(model.state_dict(), 'last.pth')
 wandb.save('last.pth', policy='now')

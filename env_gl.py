@@ -22,7 +22,7 @@ class EnvRenderer(quadsim.Env):
 
 
 @torch.jit.script
-def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_delay, grad_decay=0.8):
+def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_delay, grad_decay:float=0.8):
     alpha = grad_decay ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
     self_v = alpha * self_v + (1 - alpha) * self_v.detach()
@@ -89,9 +89,9 @@ class Env:
 
 @torch.no_grad()
 def main():
-    env = Env(256, 80, 60, 'cpu')
+    env = Env(1, 80, 60, 'cpu')
     color, depth, _ = env.render(1/15)
-    plt.imsave('1.png', depth.reshape(60*16, 80*16))
+    plt.imsave('1.png', depth[0])
 
 if __name__ == '__main__':
     main()
