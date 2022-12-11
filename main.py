@@ -62,7 +62,7 @@ def smooth_dict(ori_dict):
 
 def barrier(x: torch.Tensor):
     x = x.clamp_max(1)
-    return torch.where(x > 0.01, torch.log(x), -99. * (x - 0.01) + 4.60517).mean()
+    return torch.where(x > 0.01, -torch.log(x), -100. * (x - 0.01) + 4.60517).mean()
     clamp_min = 0.02
     val = clamp_min - math.log(clamp_min)
     grad = 1 - 1 / clamp_min
@@ -173,9 +173,9 @@ for i in pbar:
     loss_d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
-    w_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
-    jerk_history = (w_history[1:] - w_history[:-1]).div(ctl_dt)
-    loss_d_acc = w_history.pow(2).sum(-1).mean()
+    a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
+    jerk_history = (a_history[1:] - a_history[:-1]).div(ctl_dt)
+    loss_d_acc = a_history.pow(2).sum(-1).mean()
     loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
