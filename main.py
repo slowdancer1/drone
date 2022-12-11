@@ -22,15 +22,15 @@ from rotation import _axis_angle_rotation
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--num_iters', type=int, default=5000)
+parser.add_argument('--num_iters', type=int, default=20000)
 parser.add_argument('--coef_v', type=float, default=1.0)
 parser.add_argument('--coef_v_dri', type=float, default=0.2)
-parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
+parser.add_argument('--coef_d_ctrl', type=float, default=0.5)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
-parser.add_argument('--coef_look_ahead', type=float, default=1.0)
-parser.add_argument('--coef_tgt', type=float, default=1.0)
+parser.add_argument('--coef_look_ahead', type=float, default=0.5)
+parser.add_argument('--coef_tgt', type=float, default=0.2)
 parser.add_argument('--coef_d_acc', type=float, default=0.1)
-parser.add_argument('--coef_d_jerk', type=float, default=0.01)
+parser.add_argument('--coef_d_jerk', type=float, default=0.02)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
 args = parser.parse_args()
@@ -62,7 +62,7 @@ def smooth_dict(ori_dict):
 
 def barrier(x: torch.Tensor):
     x = x.clamp_max(1)
-    return torch.where(x > 0.01, x - torch.log(x), -99. * (x - 0.01) + 4.61517).mean() - 1
+    return torch.where(x > 0.01, torch.log(x), -99. * (x - 0.01) + 4.60517).mean()
     clamp_min = 0.02
     val = clamp_min - math.log(clamp_min)
     grad = 1 - 1 / clamp_min
@@ -85,7 +85,7 @@ for i in pbar:
     env.reset()
     p_history = []
     v_history = []
-    act_history = []
+    w_history = []
     nearest_pt_history = []
     vid = []
     h = None
@@ -106,7 +106,7 @@ for i in pbar:
     for _ in range(randint(1, 3)):
         act = torch.cat([
             env.quad.w[:, :2],
-            torch.randn((args.batch_size, 4), device=device) * 0.01
+            torch.zeros((args.batch_size, 2), device=device)
         ], -1)
         act_buffer.append(act)
     speed_ratios = []
@@ -120,10 +120,13 @@ for i in pbar:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
         R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
-        loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
+        # loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / target_v_norm
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
+        _fwd = target_v[:, :2]
+        _fwd = _fwd / torch.norm(_fwd, 2, -1, keepdim=True).clamp_min(1)
+        loss_look_ahead += 1 - torch.sum(R[:, :2, 0] * _fwd, -1).mean()
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v.add_(torch.randn_like(local_v) * 0.01)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
@@ -141,8 +144,6 @@ for i in pbar:
         state = (state - states_mean) / states_std
         # depths.append(depth.clamp_(0.01, 10).detach())
         act, h = model(x, state, h)
-        act = act.clone()
-        act[:, 2] += env.quad.w[:, 2]
 
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
@@ -158,23 +159,23 @@ for i in pbar:
         loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
 
         v_history.append(env.quad.v)
-        act_history.append(act)
+        w_history.append(env.quad.w)
 
     p_history = torch.stack(p_history)
     v_history = torch.stack(v_history)
-    act_history = torch.stack(act_history)
+    w_history = torch.stack(w_history)
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     loss_v /= t + 1
     loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
 
-    loss_d_ctrl = (act_history[1:] - act_history[:-1]).div(ctl_dt)
+    loss_d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
     loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
-    act_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
-    jerk_history = (act_history[1:] - act_history[:-1]).div(ctl_dt)
-    loss_d_acc = act_history.pow(2).sum(-1).mean()
+    w_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
+    jerk_history = (w_history[1:] - w_history[:-1]).div(ctl_dt)
+    loss_d_acc = w_history.pow(2).sum(-1).mean()
     loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
@@ -207,6 +208,7 @@ for i in pbar:
     with torch.no_grad():
         success = torch.all(distance > 0, 0)
         speed = torch.cat(speed_ratios, -1).max(-1).values
+        mean_speed = speed.mean().item()
         smooth_dict({
             'loss': loss.item(),
             'loss_v': loss_v.item(),
@@ -218,8 +220,8 @@ for i in pbar:
             'loss_d_acc': loss_d_acc.item(),
             'loss_d_jerk': loss_d_jerk.item(),
             'success': success.sum().item() / args.batch_size,
-            'speed': speed.mean().item(),
-            'ar': (success * speed).mean().item()})
+            'speed': mean_speed,
+            'ar': (success * speed).mean().item() * mean_speed})
         log_dict = {}
         if (i + 1) % 250 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
@@ -236,16 +238,17 @@ for i in pbar:
             ax.plot(p_history[:, -1, 2], label='z')
             ax.legend()
             fig_a, ax = plt.subplots()
-            act_history = act_history.cpu()
-            ax.plot(act_history[:, -1, 0], label='x')
-            ax.plot(act_history[:, -1, 1], label='y')
-            ax.plot(act_history[:, -1, 2], label='z')
+            w_history = w_history.cpu()
+            ax.plot(w_history[:, -1, 0], label='x')
+            ax.plot(w_history[:, -1, 1], label='y')
+            ax.plot(w_history[:, -1, 2], label='z')
             ax.legend()
             log_dict['demo'] = wandb.Video(vid, fps=15)
             log_dict['v_history'] = fig_v
             log_dict['p_history'] = fig_p
             log_dict['a_history'] = fig_a
             torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
+        if (i + 1) % 25 == 0:
             log_dict.update({k: sum(v) / len(v) for k, v in scaler_q.items()})
             log_dict['iter'] = i + 1
             scaler_q.clear()

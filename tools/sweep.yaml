@@ -10,21 +10,21 @@ parameters:
   coef_v_dri:
     values: [0.1, 0.2, 0.5, 1.0, 2.0]
   coef_d_ctrl:
-    values: [0.5, 1.0, 2.0]
+    values: [0.2, 0.5, 1.0]
   coef_obj_avoidance:
     values: [2.0, 5.0, 10.0]
   coef_look_ahead:
-    values: [0.5, 1.0, 2.0, 5.0]
-  coef_tgt:
     values: [0.2, 0.5, 1.0, 2.0]
+  coef_tgt:
+    values: [0.1, 0.2, 0.5, 1.0]
   coef_d_acc:
-    values: [0.2, 0.1, 0.05, 0.02, 0.01]
+    values: [0.5, 0.2, 0.1, 0.05, 0.02]
   coef_d_jerk:
     values: [0.1, 0.05, 0.02, 0.01, 0.005]
   lr:
-    values: [2e-4, 5e-4, 1e-3]
+    values: [5e-4, 1e-3]
   grad_decay:
-    values: [0.5, 0.6, 0.7, 0.8, 0.9]
+    values: [0.7, 0.8, 0.9, 0.95]
 early_terminate:
   type: hyperband
   min_iter: 1
