@@ -29,3 +29,5 @@ pos = pose.position
 q = pose.orientation
 pos = pos.x_val, pos.y_val, pos.z_val, q.w_val, q.x_val, q.y_val, q.z_val
 print(pos)
+# breakpoint()
+# client.simSetVehiclePose(pose)
