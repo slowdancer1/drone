@@ -94,10 +94,10 @@ public:
         envs.resize(n_envs);
         for (int i = 0; i < n_envs; i++)
         {
-            int n_obstacles = (rd() % 79) + 1;
+            int n_obstacles = (rd() % 39) + 1;
             for (int j = 0; j < n_obstacles; j++)
             {
-                float x = float(rd()) / rd.max() * 60 + 2;
+                float x = float(rd()) / rd.max() * 28 + 2;
                 float y = float(rd()) / rd.max() * 10 - 5;
                 float z = float(rd()) / rd.max() * 8 - 2;
                 float vx = 0, vy = 0, vz = 0;

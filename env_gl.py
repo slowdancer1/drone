@@ -60,6 +60,8 @@ class QuadState:
 
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
         self.grad_decay = grad_decay
+        c, s = torch.cos(self.w[:, -1]), torch.sin(self.w[:, -1])
+        self.v += torch.rand_like(self.v) * torch.cat([c, s, c.mul(0)])
 
     def run(self, action, ctl_dt=1/15):
         self.p, self.v, self.w = run(

@@ -28,7 +28,7 @@ parser.add_argument('--coef_v_dri', type=float, default=0.2)
 parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
 parser.add_argument('--coef_look_ahead', type=float, default=0.05)
-parser.add_argument('--coef_tgt', type=float, default=0.2)
+parser.add_argument('--coef_tgt', type=float, default=1.0)
 parser.add_argument('--coef_d_acc', type=float, default=0.05)
 parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 parser.add_argument('--lr', type=float, default=5e-4)
@@ -91,7 +91,7 @@ for i in pbar:
     h = None
     loss_obj_avoidance = 0
     p_target = torch.stack([
-        torch.rand((args.batch_size,), device=device) * 54 + 10,
+        torch.rand((args.batch_size,), device=device) * 22 + 10,
         torch.rand((args.batch_size,), device=device) * 12 - 6,
         torch.full((args.batch_size,), 0, device=device)
     ], -1)
