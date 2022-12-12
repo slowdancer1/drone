@@ -30,7 +30,7 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_
 
     alpha = rate_ctl_delay ** (ctl_dt / rate_ctl_delay)
     action = action.clone()
-    action[:, 2] += self_w[:, 2]
+    action[:, 2] = self_w[:, 2] + action[:, 2] * ctl_dt * 3
     self_w = action[:, :3] * (1 - alpha) + self_w * alpha
     cx, cy, cz = torch.cos(self_w).unbind(-1)
     sx, sy, sz = torch.sin(self_w).unbind(-1)
@@ -60,6 +60,8 @@ class QuadState:
 
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
         self.grad_decay = grad_decay
+        c, s = torch.cos(self.w[:, -1]), torch.sin(self.w[:, -1])
+        self.v += torch.rand_like(self.v) * torch.cat([c, s, c.mul(0)])
 
     def run(self, action, ctl_dt=1/15):
         self.p, self.v, self.w = run(
