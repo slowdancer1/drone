@@ -25,14 +25,14 @@ parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_iters', type=int, default=20000)
 parser.add_argument('--coef_v', type=float, default=1.0)
 parser.add_argument('--coef_v_dri', type=float, default=0.2)
-parser.add_argument('--coef_d_ctrl', type=float, default=0.5)
+parser.add_argument('--coef_d_ctrl', type=float, default=0.2)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
 parser.add_argument('--coef_look_ahead', type=float, default=0.5)
 parser.add_argument('--coef_tgt', type=float, default=0.2)
 parser.add_argument('--coef_d_acc', type=float, default=0.05)
 parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 parser.add_argument('--lr', type=float, default=5e-4)
-parser.add_argument('--grad_decay', type=float, default=0.9)
+parser.add_argument('--grad_decay', type=float, default=0.7)
 args = parser.parse_args()
 import wandb
 wandb.init(project="drone_rl", config=args.__dict__)
@@ -170,9 +170,8 @@ for i in pbar:
     loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
 
-    # loss_d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
-    # loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
-    loss_d_ctrl = F.smooth_l1_loss(w_history[1:], w_history[:-1], beta=0.1)
+    loss_d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
+    loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
 
     a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
     jerk_history = (a_history[1:] - a_history[:-1]).div(ctl_dt)
