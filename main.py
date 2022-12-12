@@ -25,9 +25,9 @@ parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_iters', type=int, default=20000)
 parser.add_argument('--coef_v', type=float, default=1.0)
 parser.add_argument('--coef_v_dri', type=float, default=0.2)
-parser.add_argument('--coef_d_ctrl', type=float, default=0.2)
+parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
-parser.add_argument('--coef_look_ahead', type=float, default=0.5)
+parser.add_argument('--coef_look_ahead', type=float, default=0.05)
 parser.add_argument('--coef_tgt', type=float, default=0.2)
 parser.add_argument('--coef_d_acc', type=float, default=0.05)
 parser.add_argument('--coef_d_jerk', type=float, default=0.01)
@@ -124,9 +124,7 @@ for i in pbar:
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / target_v_norm
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
-        _fwd = target_v[:, :2]
-        _fwd = _fwd / torch.norm(_fwd, 2, -1, keepdim=True).clamp_min(1)
-        loss_look_ahead += 1 - torch.sum(R[:, :2, 0] * _fwd, -1).mean()
+        loss_look_ahead += 1 - torch.sum(R[:, :2, 0] * target_v[:, :2], -1).mean()
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v.add_(torch.randn_like(local_v) * 0.01)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
@@ -170,8 +168,9 @@ for i in pbar:
     loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
 
-    loss_d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
-    loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
+    # loss_d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
+    # loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
+    loss_d_ctrl = F.smooth_l1_loss(w_history[1:], w_history[:-1], beta=0.1).mul(3)
 
     a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
     jerk_history = (a_history[1:] - a_history[:-1]).div(ctl_dt)
