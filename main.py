@@ -27,16 +27,14 @@ parser.add_argument('--coef_v', type=float, default=1.0)
 parser.add_argument('--coef_v_dri', type=float, default=0.2)
 parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
-parser.add_argument('--coef_look_ahead', type=float, default=0.05)
+parser.add_argument('--coef_look_ahead', type=float, default=0.01)
 parser.add_argument('--coef_tgt', type=float, default=1.0)
 parser.add_argument('--coef_d_acc', type=float, default=0.05)
 parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
 args = parser.parse_args()
-import wandb
-wandb.init(project="drone_rl", config=args.__dict__)
-args = wandb.config
+writer = SummaryWriter('.', flush_secs=1)
 print(args)
 
 device = torch.device('cuda')
@@ -83,6 +81,7 @@ pbar = tqdm(range(args.num_iters), ncols=80)
 for i in pbar:
     t0 = time.time()
     env.reset()
+    model.reset()
     p_history = []
     v_history = []
     w_history = []
@@ -124,7 +123,7 @@ for i in pbar:
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / target_v_norm
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
-        loss_look_ahead += 1 - torch.sum(R[:, :2, 0] * target_v[:, :2], -1).mean()
+        loss_look_ahead += 1 - torch.sum(R[:, :2, 0] * env.quad.v.detach()[:, :2], -1).mean()
         local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
         local_v.add_(torch.randn_like(local_v) * 0.01)
         local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
@@ -168,8 +167,6 @@ for i in pbar:
     loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
 
-    # loss_d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
-    # loss_d_ctrl = loss_d_ctrl.pow(2).sum(-1).mean()
     loss_d_ctrl = F.smooth_l1_loss(w_history[1:], w_history[:-1], beta=0.1).mul(3)
 
     a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
@@ -242,17 +239,14 @@ for i in pbar:
             ax.plot(w_history[:, -1, 1], label='y')
             ax.plot(w_history[:, -1, 2], label='z')
             ax.legend()
-            log_dict['demo'] = wandb.Video(vid, fps=15)
-            log_dict['v_history'] = fig_v
-            log_dict['p_history'] = fig_p
-            log_dict['a_history'] = fig_a
+            writer.add_video('demo', vid, i + 1, 15)
+            writer.add_figure('v_history', fig_v, i + 1)
+            writer.add_figure('p_history', fig_p, i + 1)
+            writer.add_figure('a_history', fig_a, i + 1)
             torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
         if (i + 1) % 25 == 0:
-            log_dict.update({k: sum(v) / len(v) for k, v in scaler_q.items()})
-            log_dict['iter'] = i + 1
+            for k, v in scaler_q.items():
+                writer.add_scalar(k, sum(v) / len(v), i + 1)
             scaler_q.clear()
-            wandb.log(log_dict)
 
-# wandb.log({'ar': eval(env, model, args.batch_size, device)})
 torch.save(model.state_dict(), 'last.pth')
-wandb.save('last.pth', policy='now')
