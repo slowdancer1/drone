@@ -51,7 +51,7 @@ class QuadState:
     def __init__(self, batch_size, device, grad_decay=0.8) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
         self.w = torch.randn((batch_size, 3), device=device) \
-            * torch.tensor([0.1, 0.1, 1], device=device)
+            * torch.tensor([0.1, 0.1, 0.1], device=device)
         self.v = torch.randn((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
         self.drag = torch.rand((batch_size, 1), device=device) * 0.1 + 0.05

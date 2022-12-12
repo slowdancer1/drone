@@ -25,7 +25,7 @@ parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_iters', type=int, default=20000)
 parser.add_argument('--coef_v', type=float, default=1.0)
 parser.add_argument('--coef_v_dri', type=float, default=0.2)
-parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
+parser.add_argument('--coef_d_ctrl', type=float, default=2.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
 parser.add_argument('--coef_look_ahead', type=float, default=0.01)
 parser.add_argument('--coef_tgt', type=float, default=1.0)
@@ -179,8 +179,7 @@ for i in pbar:
     loss_cns /= t + 1
 
     d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
-    loss_d_ctrl = F.mse_loss(d_ctrl,
-        torch.zeros_like(d_ctrl)).mul(3)
+    loss_d_ctrl = d_ctrl.pow(2).mean() * 3
 
     a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
     jerk_history = (a_history[1:] - a_history[:-1]).div(ctl_dt)
