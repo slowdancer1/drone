@@ -24,14 +24,14 @@ parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_iters', type=int, default=20000)
 parser.add_argument('--coef_v', type=float, default=2.0)
-parser.add_argument('--coef_v_dri', type=float, default=0.5)
-parser.add_argument('--coef_d_ctrl', type=float, default=2.0)
+parser.add_argument('--coef_v_dri', type=float, default=1.0)
+parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
 parser.add_argument('--coef_look_ahead', type=float, default=0.01)
 parser.add_argument('--coef_tgt', type=float, default=1.0)
 parser.add_argument('--coef_d_acc', type=float, default=0.)
 parser.add_argument('--coef_d_jerk', type=float, default=0.)
-parser.add_argument('--coef_cns', type=float, default=1.0)
+# parser.add_argument('--coef_cns', type=float, default=0.0)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
 args = parser.parse_args()
@@ -91,7 +91,7 @@ for i in pbar:
     h = None
     loss_obj_avoidance = 0
     p_target = torch.stack([
-        torch.rand((args.batch_size,), device=device) * 22 + 10,
+        torch.rand((args.batch_size,), device=device) * 10 + 22,
         torch.rand((args.batch_size,), device=device) * 12 - 6,
         torch.full((args.batch_size,), 0, device=device)
     ], -1)
@@ -99,7 +99,7 @@ for i in pbar:
     loss_v = 0
     loss_v_dri = 0
     loss_look_ahead = 0
-    loss_cns = 0
+    # loss_cns = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.25
     max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 3
 
@@ -142,15 +142,15 @@ for i in pbar:
         # states.append(state.detach())
         mirror_state = state.clone()
         mirror_state[:, [1, 3, 6]] = -mirror_state[:, [1, 3, 6]]
-        state = torch.cat([state, mirror_state])
-        x = torch.cat([x, torch.flip(x, (-1,))])
+        # state = torch.cat([state, mirror_state])
+        # x = torch.cat([x, torch.flip(x, (-1,))])
         state = (state - states_mean) / states_std
         # depths.append(depth.clamp_(0.01, 10).detach())
         act, h = model(x, state, h)
-        act, mirror_act = torch.chunk(act, 2)
-        mirror_act = mirror_act.clone()
-        mirror_act[:, 0] = -mirror_act[:, 0]
-        loss_cns += F.mse_loss(act, mirror_act)
+        # act, mirror_act = torch.chunk(act, 2)
+        # mirror_act = mirror_act.clone()
+        # mirror_act[:, 0] = -mirror_act[:, 0]
+        # loss_cns += F.mse_loss(act, mirror_act)
 
         act_buffer.append(act)
         env.step(act_buffer.pop(0), ctl_dt)
@@ -176,7 +176,7 @@ for i in pbar:
     loss_v /= t + 1
     loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
-    loss_cns /= t + 1
+    # loss_cns /= t + 1
 
     d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
     loss_d_ctrl = d_ctrl.pow(2).mean() * 3
@@ -200,8 +200,8 @@ for i in pbar:
         args.coef_look_ahead * loss_look_ahead + \
         args.coef_tgt * loss_tgt + \
         args.coef_d_acc * loss_d_acc + \
-        args.coef_d_jerk * loss_d_jerk + \
-        args.coef_cns * loss_cns
+        args.coef_d_jerk * loss_d_jerk
+        # args.coef_cns * loss_cns
     
     if torch.isnan(loss):
         print("loss is nan, exiting...")
@@ -228,7 +228,7 @@ for i in pbar:
             'loss_tgt': loss_tgt.item(),
             'loss_d_acc': loss_d_acc.item(),
             'loss_d_jerk': loss_d_jerk.item(),
-            'loss_cns': loss_cns.item(),
+            # # 'loss_cns': loss_cns.item(),
             'success': success.sum().item() / args.batch_size,
             'speed': mean_speed,
             'ar': (success * speed).mean().item() * mean_speed})
