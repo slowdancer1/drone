@@ -166,7 +166,7 @@ for i in pbar:
         loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
 
         v_history.append(env.quad.v)
-        w_history.append(env.quad.w)
+        w_history.append(act)
 
     p_history = torch.stack(p_history)
     v_history = torch.stack(v_history)
@@ -178,7 +178,9 @@ for i in pbar:
     loss_look_ahead /= t + 1
     loss_cns /= t + 1
 
-    loss_d_ctrl = F.smooth_l1_loss(w_history[1:], w_history[:-1], beta=0.1).mul(3)
+    d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
+    loss_d_ctrl = F.smooth_l1_loss(d_ctrl,
+        torch.zeros_like(d_ctrl)).mul(3)
 
     a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
     jerk_history = (a_history[1:] - a_history[:-1]).div(ctl_dt)
