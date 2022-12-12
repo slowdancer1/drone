@@ -3,12 +3,29 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+class StableDropout(nn.Module):
+    def __init__(self, p=0.5) -> None:
+        super().__init__()
+        self.mask = None
+        self.p = p
+
+    def reset(self):
+        self.mask = None
+    
+    def forward(self, x):
+        return x
+        if self.mask is None:
+            self.mask = torch.rand_like(x) < self.p
+        return x.mul(self.mask).div(self.p)
+
 
 class Model(nn.Module):
     def __init__(self, dim_obs=9, dim_action=4) -> None:
         super().__init__()
         self.stem = nn.Linear(12*16, 192, bias=False)
         self.v_proj = nn.Linear(dim_obs, 192)
+        self.drop1 = StableDropout()
+        self.drop2 = StableDropout()
 
         # i, j = torch.meshgrid(torch.linspace(0, 1, 12), torch.linspace(0, 1, 16))
         # rnd = torch.unbind(torch.rand(4, 192) - 0.5)
@@ -24,11 +41,15 @@ class Model(nn.Module):
         self.history = []
         self.act = nn.LeakyReLU(0.05)
 
+    def reset(self):
+        self.drop1.reset()
+        self.drop2.reset()
+
     def forward(self, x: torch.Tensor, v, hx=None):
-        # x = F.max_pool2d(x, 5, 5)
         x = self.act(self.stem(x.flatten(1)) + self.v_proj(v))
+        x = self.drop1(x)
         hx = self.gru(x, hx)
-        return self.fc(self.act(hx)).tanh(), hx
+        return self.fc(self.act(self.drop2(hx))).tanh(), hx
 
 
 if __name__ == '__main__':
