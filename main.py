@@ -179,7 +179,7 @@ for i in pbar:
     loss_cns /= t + 1
 
     d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
-    loss_d_ctrl = F.smooth_l1_loss(d_ctrl,
+    loss_d_ctrl = F.mse_loss(d_ctrl,
         torch.zeros_like(d_ctrl)).mul(3)
 
     a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
