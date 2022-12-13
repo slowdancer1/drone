@@ -26,11 +26,11 @@ parser.add_argument('--num_iters', type=int, default=20000)
 parser.add_argument('--coef_v', type=float, default=2.0)
 parser.add_argument('--coef_v_dri', type=float, default=0.5)
 parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
-parser.add_argument('--coef_obj_avoidance', type=float, default=10.0)
-parser.add_argument('--coef_look_ahead', type=float, default=0.01)
-parser.add_argument('--coef_tgt', type=float, default=1.0)
-parser.add_argument('--coef_d_acc', type=float, default=0.)
-parser.add_argument('--coef_d_jerk', type=float, default=0.)
+parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
+parser.add_argument('--coef_look_ahead', type=float, default=0.)
+parser.add_argument('--coef_tgt', type=float, default=0.)
+parser.add_argument('--coef_d_acc', type=float, default=0.5)
+parser.add_argument('--coef_d_jerk', type=float, default=0.1)
 # parser.add_argument('--coef_cns', type=float, default=0.0)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
@@ -42,7 +42,7 @@ device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
 env.quad.grad_decay = args.grad_decay
-model = Model()
+model = Model(13, 3)
 model = model.to(device)
 
 if args.resume:
@@ -85,7 +85,7 @@ for i in pbar:
     model.reset()
     p_history = []
     v_history = []
-    w_history = []
+    a_history = []
     nearest_pt_history = []
     vid = []
     h = None
@@ -104,12 +104,8 @@ for i in pbar:
     max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 3
 
     act_buffer = []
-    for _ in range(randint(1, 3)):
-        act = torch.cat([
-            env.quad.w[:, :2],
-            torch.zeros((args.batch_size, 2), device=device)
-        ], -1)
-        act_buffer.append(act)
+    for j in range(randint(1, 3)):
+        act_buffer.append(env.quad.v * 0)
     speed_ratios = []
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
@@ -120,19 +116,15 @@ for i in pbar:
         if (i + 1) % 250 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
-        R = _axis_angle_rotation('Z',  env.quad.w[:, -1])
         # loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / target_v_norm
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
-        loss_look_ahead += 1 - torch.sum(R[:, :2, 0] * env.quad.v.detach()[:, :2], -1).mean()
-        local_v = torch.squeeze(env.quad.v[:, None] @ R, 1)
-        local_v.add_(torch.randn_like(local_v) * 0.01)
-        local_v_target = torch.squeeze(target_v[:, None] @ R, 1)
         state = torch.cat([
-            local_v,
-            env.quad.w[:, :2],
-            local_v_target,
+            env.quad.v,
+            env.quad.a,
+            env.quad.forward_vec,
+            target_v,
             margin[:, None]
         ], -1)
 
@@ -140,11 +132,11 @@ for i in pbar:
         x = 3 / depth.clamp_(0.01, 10) - 0.6
         x = F.max_pool2d(x, 5, 5)
         # states.append(state.detach())
-        mirror_state = state.clone()
-        mirror_state[:, [1, 3, 6]] = -mirror_state[:, [1, 3, 6]]
+        # mirror_state = state.clone()
+        # mirror_state[:, [1, 3, 6]] = -mirror_state[:, [1, 3, 6]]
         # state = torch.cat([state, mirror_state])
         # x = torch.cat([x, torch.flip(x, (-1,))])
-        state = (state - states_mean) / states_std
+        # state = (state - states_mean) / states_std
         # depths.append(depth.clamp_(0.01, 10).detach())
         act, h = model(x, state, h)
         # act, mirror_act = torch.chunk(act, 2)
@@ -166,11 +158,11 @@ for i in pbar:
         loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
 
         v_history.append(env.quad.v)
-        w_history.append(act)
+        a_history.append(env.quad.a)
 
     p_history = torch.stack(p_history)
     v_history = torch.stack(v_history)
-    w_history = torch.stack(w_history)
+    a_history = torch.stack(a_history)
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     loss_v /= t + 1
@@ -178,10 +170,8 @@ for i in pbar:
     loss_look_ahead /= t + 1
     # loss_cns /= t + 1
 
-    d_ctrl = (w_history[1:] - w_history[:-1]).div(ctl_dt)
-    loss_d_ctrl = d_ctrl.pow(2).mean() * 3
+    loss_d_ctrl = 1 - F.cosine_similarity(v_history[1:], v_history[:-1]).mean()
 
-    a_history = (v_history[1:] - v_history[:-1]).div(ctl_dt)
     jerk_history = (a_history[1:] - a_history[:-1]).div(ctl_dt)
     loss_d_acc = a_history.pow(2).sum(-1).mean()
     loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
@@ -223,12 +213,10 @@ for i in pbar:
             'loss_v': loss_v.item(),
             'loss_v_dri': loss_v_dri.item(),
             'loss_d_ctrl': loss_d_ctrl.item(),
-            'loss_look_ahead': loss_look_ahead.item(),
             'loss_obj_avoidance': loss_obj_avoidance.item(),
             'loss_tgt': loss_tgt.item(),
             'loss_d_acc': loss_d_acc.item(),
             'loss_d_jerk': loss_d_jerk.item(),
-            # # 'loss_cns': loss_cns.item(),
             'success': success.sum().item() / args.batch_size,
             'speed': mean_speed,
             'ar': (success * speed).mean().item() * mean_speed})
@@ -248,10 +236,10 @@ for i in pbar:
             ax.plot(p_history[:, -1, 2], label='z')
             ax.legend()
             fig_a, ax = plt.subplots()
-            w_history = w_history.cpu()
-            ax.plot(w_history[:, -1, 0], label='x')
-            ax.plot(w_history[:, -1, 1], label='y')
-            ax.plot(w_history[:, -1, 2], label='z')
+            a_history = a_history.cpu()
+            ax.plot(a_history[:, -1, 0], label='x')
+            ax.plot(a_history[:, -1, 1], label='y')
+            ax.plot(a_history[:, -1, 2], label='z')
             ax.legend()
             writer.add_video('demo', vid, i + 1, 15)
             writer.add_figure('v_history', fig_v, i + 1)

@@ -15,27 +15,12 @@
 
 namespace py = pybind11;
 
-Vector3f set_camera(
-    Vector3f p, float roll, float pitch, float yaw)
+void set_camera(
+    Vector3f p, Vector3f f, Vector3f u)
 {
-    float cx = cos(roll);
-    float cy = cos(pitch);
-    float cz = cos(yaw);
-    float sx = sin(roll);
-    float sy = sin(pitch);
-    float sz = sin(yaw);
-
-    float up_x = cx * cz * sy + sx * sz;
-    float up_y = -cz * sx + cx * sy * sz;
-    float up_z = cx * cy;
-    float forward_x = cy * cz;
-    float forward_y = cy * sz;
-    float forward_z = -sy;
-
     gluLookAt(p.x, p.y, p.z,
-              p.x + forward_x, p.y + forward_y, p.z + forward_z,
-              up_x, up_y, up_z);
-    return {forward_x, forward_y, forward_z};
+              p.x + f.x, p.y + f.y, p.z + f.z,
+              u.x, u.y, u.z);
 }
 
 typedef std::vector<Mesh> env_t;
@@ -153,7 +138,10 @@ public:
             gluPerspective(180 * 0.354, 12. / 9, 0.01f, 10.0f);
 
             Vector3f camera_p{r(i, 0), r(i, 1), r(i, 2)};
-            Vector3f forward = set_camera(camera_p, r(i, 3), r(i, 4), r(i, 5));
+            Vector3f camera_f{r(i, 3), r(i, 4), r(i, 5)};
+            Vector3f camera_u{r(i, 6), r(i, 7), r(i, 8)};
+
+            set_camera(camera_p, camera_f, camera_u);
 
             nearest_pt_ptr(i, 0) = camera_p.x;
             nearest_pt_ptr(i, 1) = camera_p.y;
@@ -176,7 +164,7 @@ public:
                     nearest_pt_ptr(i, 2) = pt.z;
                     nearest_distance = distance;
                 }
-                float forward_distance = cam2pt.dot(forward);
+                float forward_distance = cam2pt.dot(camera_f);
                 if (0 < forward_distance && forward_distance < 10 && distance < 10) {
                     ball.draw();
                 }

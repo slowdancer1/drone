@@ -21,7 +21,6 @@ class EnvRenderer(quadsim.Env):
         return color, depth, nearest_pt
 
 
-@torch.jit.script
 def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_delay, grad_decay:float=0.8):
     alpha = grad_decay ** ctl_dt
     self_p = alpha * self_p + (1 - alpha) * self_p.detach()
@@ -50,23 +49,24 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_
 class QuadState:
     def __init__(self, batch_size, device, grad_decay=0.8) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
-        self.w = torch.randn((batch_size, 3), device=device) \
+        self.a = torch.zeros((batch_size, 3), device=device) \
             * torch.tensor([0.1, 0.1, 0.1], device=device)
-        self.v = torch.randn((batch_size, 3), device=device)
+        self.v = torch.zeros((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
         self.drag = torch.rand((batch_size, 1), device=device) * 0.1 + 0.05
         self.g[:, 2] -= 9.80665
-        self.thrust = torch.randn((batch_size, 1), device=device) + 9.80665
-
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
-        self.grad_decay = grad_decay
-        c, s = torch.cos(self.w[:, -1]), torch.sin(self.w[:, -1])
-        self.v += torch.rand_like(self.v) * torch.stack([c, s, c.mul(0)], -1) * 6
+        self.forward_vec = torch.zeros((batch_size, 3), device=device)
+        self.forward_vec[:, 0] = 1
 
+    # @torch.jit.script
     def run(self, action, ctl_dt=1/15):
-        self.p, self.v, self.w = run(
-            self.p, self.v, self.w, self.g, self.thrust, action, ctl_dt,
-            self.drag, self.rate_ctl_delay, self.grad_decay)
+        target_v = action / ctl_dt
+        target_a = (target_v - self.v) / ctl_dt
+
+        self.a = target_a
+        self.v = target_v
+        self.p = self.p * 0.9 + self.p.detach() * 0.1 + action
 
 
 class Env:
@@ -84,7 +84,13 @@ class Env:
 
     @torch.no_grad()
     def render(self, ctl_dt):
-        state = torch.cat([self.quad.p, self.quad.w], -1).cpu()
+        a_thr = self.quad.a - self.quad.g + self.quad.drag * self.quad.v * torch.norm(self.quad.v, 2, -1, True)
+        thrust = torch.norm(a_thr, 2, -1, True)
+        up_vec = a_thr / thrust
+        forward_vec = self.quad.forward_vec + self.quad.v - torch.sum(self.quad.v * up_vec, -1, keepdim=True) * up_vec
+        forward_vec /= torch.norm(forward_vec, 2, -1, True)
+        self.quad.forward_vec = forward_vec
+        state = torch.cat([self.quad.p, forward_vec, up_vec], -1).cpu()
         return self.r.render(state.numpy(), ctl_dt)
 
     def step(self, action, ctl_dt=1/15):
