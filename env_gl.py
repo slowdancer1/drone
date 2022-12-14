@@ -53,11 +53,12 @@ class QuadState:
             * torch.tensor([0.1, 0.1, 0.1], device=device)
         self.v = torch.zeros((batch_size, 3), device=device)
         self.g = torch.randn((batch_size, 3), device=device) * 0.1
-        self.drag = torch.rand((batch_size, 1), device=device) * 0.1 + 0.05
+        self.drag = torch.rand((batch_size, 1), device=device) * 0.09 + 0.01
         self.g[:, 2] -= 9.80665
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
         self.forward_vec = torch.zeros((batch_size, 3), device=device)
         self.forward_vec[:, 0] = 1
+        self.update_state_vec()
 
     # @torch.jit.script
     def run(self, action, ctl_dt=1/15):
@@ -66,7 +67,19 @@ class QuadState:
 
         self.a = target_a
         self.v = target_v
-        self.p = self.p * 0.9 + self.p.detach() * 0.1 + action
+        alpha = 0.4 ** ctl_dt
+        self.p = self.p * alpha + self.p.detach() * (1 - alpha) + action
+        self.update_state_vec()
+
+    @torch.no_grad()
+    def update_state_vec(self):
+        a_thr = self.a - self.g + self.drag * self.v * torch.norm(self.v, 2, -1, True)
+        thrust = torch.norm(a_thr, 2, -1, True)
+        self.up_vec = a_thr / thrust
+        forward_vec = self.forward_vec + self.v - torch.sum(self.v * self.up_vec, -1, keepdim=True) * self.up_vec
+        forward_vec /= torch.norm(forward_vec, 2, -1, True)
+        self.forward_vec = forward_vec
+        self.left_vec = torch.cross(self.up_vec, self.forward_vec)
 
 
 class Env:
@@ -84,13 +97,7 @@ class Env:
 
     @torch.no_grad()
     def render(self, ctl_dt):
-        a_thr = self.quad.a - self.quad.g + self.quad.drag * self.quad.v * torch.norm(self.quad.v, 2, -1, True)
-        thrust = torch.norm(a_thr, 2, -1, True)
-        up_vec = a_thr / thrust
-        forward_vec = self.quad.forward_vec + self.quad.v - torch.sum(self.quad.v * up_vec, -1, keepdim=True) * up_vec
-        forward_vec /= torch.norm(forward_vec, 2, -1, True)
-        self.quad.forward_vec = forward_vec
-        state = torch.cat([self.quad.p, forward_vec, up_vec], -1).cpu()
+        state = torch.cat([self.quad.p, self.quad.forward_vec, self.quad.up_vec], -1).cpu()
         return self.r.render(state.numpy(), ctl_dt)
 
     def step(self, action, ctl_dt=1/15):

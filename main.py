@@ -24,13 +24,12 @@ parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_iters', type=int, default=20000)
 parser.add_argument('--coef_v', type=float, default=2.0)
-parser.add_argument('--coef_v_dri', type=float, default=0.5)
 parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
 parser.add_argument('--coef_look_ahead', type=float, default=0.)
-parser.add_argument('--coef_tgt', type=float, default=0.)
-parser.add_argument('--coef_d_acc', type=float, default=0.5)
-parser.add_argument('--coef_d_jerk', type=float, default=0.1)
+parser.add_argument('--coef_tgt', type=float, default=1.)
+parser.add_argument('--coef_d_acc', type=float, default=0.2)
+parser.add_argument('--coef_d_jerk', type=float, default=0.05)
 # parser.add_argument('--coef_cns', type=float, default=0.0)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
@@ -97,7 +96,6 @@ for i in pbar:
     ], -1)
 
     loss_v = 0
-    loss_v_dri = 0
     loss_look_ahead = 0
     # loss_cns = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.25
@@ -116,17 +114,24 @@ for i in pbar:
         if (i + 1) % 250 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
+        R = torch.stack([
+            env.quad.forward_vec,
+            env.quad.left_vec,
+            env.quad.up_vec,
+        ], -1)
         # loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
+        # R = _axis_angle_rotation('Z',  tor)
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / target_v_norm
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
-        state = torch.cat([
-            env.quad.v,
-            env.quad.a,
-            env.quad.forward_vec,
-            target_v,
-            margin[:, None]
-        ], -1)
+        with torch.no_grad():
+            state = torch.cat([
+                env.quad.v,
+                env.quad.a,
+                env.quad.forward_vec,
+                target_v,
+                margin[:, None]
+            ], -1)
 
         # normalize
         x = 3 / depth.clamp_(0.01, 10) - 0.6
@@ -153,9 +158,8 @@ for i in pbar:
             speed_ratio = v_forward.div(max_speed).clamp(0, 1)
             speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
         speed_ratios.append(speed_ratio)
-        v_drift = env.quad.v - v_forward * target_v_unit
-        loss_v += F.smooth_l1_loss(v_forward, target_v_norm)
-        loss_v_dri += v_drift.pow(2).sum(-1).mean(0)
+        delta_v = torch.norm(env.quad.v - target_v, 2, -1)
+        loss_v += F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
 
         v_history.append(env.quad.v)
         a_history.append(env.quad.a)
@@ -166,7 +170,6 @@ for i in pbar:
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     loss_v /= t + 1
-    loss_v_dri /= t + 1
     loss_look_ahead /= t + 1
     # loss_cns /= t + 1
 
@@ -184,7 +187,6 @@ for i in pbar:
     loss_tgt = loss_tgt.mean()
 
     loss = args.coef_v * loss_v + \
-        args.coef_v_dri * loss_v_dri + \
         args.coef_d_ctrl * loss_d_ctrl + \
         args.coef_obj_avoidance * loss_obj_avoidance + \
         args.coef_look_ahead * loss_look_ahead + \
@@ -211,7 +213,6 @@ for i in pbar:
         smooth_dict({
             'loss': loss.item(),
             'loss_v': loss_v.item(),
-            'loss_v_dri': loss_v_dri.item(),
             'loss_d_ctrl': loss_d_ctrl.item(),
             'loss_obj_avoidance': loss_obj_avoidance.item(),
             'loss_tgt': loss_tgt.item(),
