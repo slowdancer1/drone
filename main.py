@@ -28,8 +28,8 @@ parser.add_argument('--coef_d_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
 parser.add_argument('--coef_look_ahead', type=float, default=0.)
 parser.add_argument('--coef_tgt', type=float, default=1.)
-parser.add_argument('--coef_d_acc', type=float, default=0.2)
-parser.add_argument('--coef_d_jerk', type=float, default=0.05)
+parser.add_argument('--coef_d_acc', type=float, default=0.1)
+parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 # parser.add_argument('--coef_cns', type=float, default=0.0)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
@@ -41,7 +41,7 @@ device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
 env.quad.grad_decay = args.grad_decay
-model = Model(13, 3)
+model = Model(10, 3)
 model = model.to(device)
 
 if args.resume:
@@ -94,6 +94,10 @@ for i in pbar:
         torch.rand((args.batch_size,), device=device) * 12 - 6,
         torch.full((args.batch_size,), 0, device=device)
     ], -1)
+    reverse_mask = torch.rand((args.batch_size,), device=device) < 0.5
+    p_target[reverse_mask, 0] = 32 - p_target[reverse_mask, 0]
+    env.quad.p[reverse_mask, 0] = 32 - env.quad.p[reverse_mask, 0]
+    env.quad.forward_vec[reverse_mask, 0] = -env.quad.forward_vec[reverse_mask, 0]
 
     loss_v = 0
     loss_look_ahead = 0
@@ -114,11 +118,11 @@ for i in pbar:
         if (i + 1) % 250 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
-        R = torch.stack([
-            env.quad.forward_vec,
-            env.quad.left_vec,
-            env.quad.up_vec,
-        ], -1)
+        # R = torch.stack([
+        #     env.quad.forward_vec,
+        #     env.quad.left_vec,
+        #     env.quad.up_vec,
+        # ], -1)
         # loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         # R = _axis_angle_rotation('Z',  tor)
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
@@ -128,7 +132,6 @@ for i in pbar:
             state = torch.cat([
                 env.quad.v,
                 env.quad.a,
-                env.quad.forward_vec,
                 target_v,
                 margin[:, None]
             ], -1)
