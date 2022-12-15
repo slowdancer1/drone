@@ -49,7 +49,7 @@ class Model(nn.Module):
         x = self.act(self.stem(x.flatten(1)) + self.v_proj(v))
         x = self.drop1(x)
         hx = self.gru(x, hx)
-        return self.fc(self.act(self.drop2(hx))).tanh(), hx
+        return self.fc(self.act(self.drop2(hx))), hx
 
 
 if __name__ == '__main__':

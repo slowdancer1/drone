@@ -45,6 +45,8 @@ def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_
     self_p = self_p + self_v * ctl_dt
     return self_p, self_v, self_w
 
+def g_decay(x, alpha):
+    return x * alpha + x.detach() * (1 - alpha)
 
 class QuadState:
     def __init__(self, batch_size, device, grad_decay=0.8) -> None:
@@ -52,28 +54,30 @@ class QuadState:
         self.a = torch.zeros((batch_size, 3), device=device) \
             * torch.tensor([0.1, 0.1, 0.1], device=device)
         self.v = torch.zeros((batch_size, 3), device=device)
-        self.g = torch.randn((batch_size, 3), device=device) * 0.1
-        self.drag = torch.rand((batch_size, 1), device=device) * 0.09 + 0.01
-        self.g[:, 2] -= 9.80665
+        self.g_std = torch.tensor([0, 0, -9.80665], device=device)
+        self.dg = torch.randn((batch_size, 3), device=device) * 0.1
+        self.drag = torch.rand((batch_size, 1), device=device) * 0.4 + 0.1
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
         self.forward_vec = torch.zeros((batch_size, 3), device=device)
         self.forward_vec[:, 0] = 1
-        self.update_state_vec()
+        self.update_state_vec(self.v)
 
     # @torch.jit.script
     def run(self, action, ctl_dt=1/15):
         target_v = action / ctl_dt
         target_a = (target_v - self.v) / ctl_dt
+        a_optimal = target_a - self.dg + self.drag * self.v
 
         self.a = target_a
         self.v = target_v
         alpha = 0.4 ** ctl_dt
-        self.p = self.p * alpha + self.p.detach() * (1 - alpha) + action
-        self.update_state_vec()
+        self.p = g_decay(self.p, alpha) + action
+        self.update_state_vec(a_optimal)
+        return a_optimal
 
     @torch.no_grad()
-    def update_state_vec(self):
-        a_thr = self.a - self.g + self.drag * self.v * torch.norm(self.v, 2, -1, True)
+    def update_state_vec(self, a_thr):
+        a_thr = a_thr - self.g_std
         thrust = torch.norm(a_thr, 2, -1, True)
         self.up_vec = a_thr / thrust
         forward_vec = self.forward_vec + self.v - torch.sum(self.v * self.up_vec, -1, keepdim=True) * self.up_vec
@@ -101,7 +105,7 @@ class Env:
         return self.r.render(state.numpy(), ctl_dt)
 
     def step(self, action, ctl_dt=1/15):
-        self.quad.run(action, ctl_dt)
+        return self.quad.run(action, ctl_dt)
 
 
 @torch.no_grad()
