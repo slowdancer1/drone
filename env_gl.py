@@ -63,16 +63,18 @@ class QuadState:
         self.update_state_vec(self.v)
 
     # @torch.jit.script
-    def run(self, action, ctl_dt=1/15):
+    def run(self, action, a_pred, ctl_dt=1/15):
         target_v = action / ctl_dt
         target_a = (target_v - self.v) / ctl_dt
         a_optimal = target_a - self.dg + self.drag * self.v
 
+        with torch.no_grad():
+            dp = (a_pred * ctl_dt + self.v) * ctl_dt
         self.a = target_a
         self.v = target_v
         alpha = 0.4 ** ctl_dt
-        self.p = g_decay(self.p, alpha) + action
-        self.update_state_vec(a_optimal)
+        self.p = g_decay(self.p, alpha) + action + dp.detach() - action.detach()
+        self.update_state_vec(a_pred)
         return a_optimal
 
     @torch.no_grad()
@@ -104,8 +106,8 @@ class Env:
         state = torch.cat([self.quad.p, self.quad.forward_vec, self.quad.up_vec], -1).cpu()
         return self.r.render(state.numpy(), ctl_dt)
 
-    def step(self, action, ctl_dt=1/15):
-        return self.quad.run(action, ctl_dt)
+    def step(self, action, a_pred, ctl_dt=1/15):
+        return self.quad.run(action, a_pred, ctl_dt)
 
 
 @torch.no_grad()

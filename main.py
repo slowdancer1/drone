@@ -41,7 +41,7 @@ device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
 env.quad.grad_decay = args.grad_decay
-model = Model(10, 6)
+model = Model(7, 6)
 model = model.to(device)
 
 if args.resume:
@@ -132,7 +132,7 @@ for i in pbar:
         with torch.no_grad():
             state = torch.cat([
                 env.quad.v,
-                env.quad.a,
+                # env.quad.a,
                 target_v,
                 margin[:, None]
             ], -1)
@@ -153,8 +153,8 @@ for i in pbar:
         # mirror_act[:, 0] = -mirror_act[:, 0]
         # loss_cns += F.mse_loss(act, mirror_act)
         act_buffer.append(torch.chunk(act, 2, -1))
-        dp_target, a_target = act_buffer.pop(0)
-        a_optimal = env.step(dp_target, ctl_dt)
+        dp_target, a_pred = act_buffer.pop(0)
+        a_optimal = env.step(dp_target, a_pred, ctl_dt)
 
         # loss
         v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
@@ -166,7 +166,7 @@ for i in pbar:
         loss_v += F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
 
         v_history.append(env.quad.v)
-        a_targets.append(a_target)
+        a_targets.append(a_pred)
         a_history.append(a_optimal)
 
     p_history = torch.stack(p_history)
