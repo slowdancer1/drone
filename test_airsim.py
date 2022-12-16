@@ -21,7 +21,7 @@ args = parser.parse_args()
 
 
 device = torch.device('cpu')
-model = Model().eval()
+model = Model(7, 6).eval()
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location='cpu'))
 model.to(device)
@@ -32,26 +32,27 @@ client.reset()
 client.confirmConnection()
 client.enableApiControl(True)
 client.armDisarm(True)
-client.takeoffAsync()
+# client.takeoffAsync()
 
 # target = -20, 18.341997146606445, -3.7896406650543213
-waypoints = [
-    [-22, 18., -3.],
-    [-20, 36, -3],
-    [-60, 36, -3],
-    [-60, 18, -3],
-    [-22, 18., -3.],
-    [-20, 36, -3],
-    [-60, 36, -3],
-    [-60, 18, -3],
-    [-22, 18., -3.],
-]
-
 # waypoints = [
-#     [-210, -250, -2],
-#     [210, -250, -2],
+#     [-22, 18., -3.],
+#     [-20, 36, -3],
+#     [-60, 36, -3],
+#     [-60, 18, -3],
+#     [-22, 18., -3.],
+#     [-20, 36, -3],
+#     [-60, 36, -3],
+#     [-60, 18, -3],
+#     [-22, 18., -3.],
 # ]
 
+waypoints = [
+    [-210, -250, -2],
+    [210, -250, -2],
+]
+
+client.moveByRollPitchYawThrottleAsync(0, 0, 0, 0.593, 0.1)
 client.simSetVehiclePose(Pose(
     Vector3r(*waypoints.pop(0)),
     Quaternionr(0, 0, 0, 1)),
@@ -62,29 +63,31 @@ sleep(0.5)
 
 client.startRecording()
 
-states_mean = [3.62, 0, 0, 0, 0, 4.14, 0, 0, 0.125]
-states_mean = torch.tensor([states_mean], device=device)
-states_std = [2.770, 0.367, 0.343, 0.080, 0.240, 4.313, 0.396, 0.327, 0.073]
-states_std = torch.tensor([states_std], device=device)
+# states_mean = [3.62, 0, 0, 0, 0, 4.14, 0, 0, 0.125]
+# states_mean = torch.tensor([states_mean], device=device)
+# states_std = [2.770, 0.367, 0.343, 0.080, 0.240, 4.313, 0.396, 0.327, 0.073]
+# states_std = torch.tensor([states_std], device=device)
+states_mean = 0
+states_std = 1
 
 x, y, z = target = waypoints.pop(0)
 p_target = torch.as_tensor([x, -y, -z])
 h = None
-margin = torch.tensor([0.2])
+margin = torch.tensor([0.3])
+state = client.getMultirotorState()
+q = state.kinematics_estimated.orientation
+q = torch.as_tensor([q.w_val, q.x_val, -q.y_val, -q.z_val])
+forward = quaternion_to_matrix(q)[:, 0]
+
 while True:
     t0 = time()
     state = client.getMultirotorState()
-
-    q = state.kinematics_estimated.orientation
-    q = torch.as_tensor([q.w_val, q.x_val, -q.y_val, -q.z_val])
 
     p = state.kinematics_estimated.position
     p = torch.as_tensor([p.x_val, -p.y_val, -p.z_val])
 
     v = state.kinematics_estimated.linear_velocity
     v = torch.as_tensor([v.x_val, -v.y_val, -v.z_val])
-
-    rpy = matrix_to_euler_angles(quaternion_to_matrix(q), "ZYX")[[2, 1, 0]]
 
     # take images
     responses = client.simGetImages([
@@ -102,17 +105,14 @@ while True:
             p_target = torch.as_tensor([x, -y, -z])
         else:
             break
-    R = _axis_angle_rotation('Z',  rpy[None, -1])
+
     target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
     target_v = target_v / target_v_norm * target_v_norm.clamp_max(6)
-    local_v = torch.squeeze(v[None, None] @ R, 1)
-    local_v_target = torch.squeeze(target_v[None, None] @ R, 1)
     state = torch.cat([
-        local_v,
-        rpy[None, :2],
-        local_v_target,
-        margin[None]
-    ], -1).to(device)
+        v,
+        target_v,
+        margin
+    ], -1)[None].to(device)
 
     # normalize
     x = 3 / depth.clamp_(0.01, 10) - 0.6
@@ -121,10 +121,24 @@ while True:
     state = (state - states_mean) / states_std
 
     act, h = model(x, state, h)
-    r, p, y, c = act[0].tolist()
-    client.moveByRollPitchYawThrottleAsync(r, p, rpy[2].item() + y, (c + 1) / 2, 0.5)
+    a_pred = act[0, 3:]
+    # print(act[0].tolist())
+    a_pred[2] += 9.80665
+    a_norm = torch.norm(a_pred)
+    forward += v
+    forward /= torch.norm(forward)
+    yaw = torch.atan2(forward[1], forward[0])
+    c, s = torch.cos(yaw), torch.sin(yaw)
+    a_fwd = a_pred[0] * c + a_pred[1] * s
+    a_left = a_pred[0] * s - a_pred[1] * c
+    pitch = torch.atan2(a_fwd, a_pred[2])
+    roll = torch.asin(a_left / a_norm)
+    roll, pitch, yaw, a_norm = roll.item(), pitch.item(), yaw.item(), a_norm.item()
+    client.moveByRollPitchYawThrottleAsync(roll, pitch, yaw, a_norm / 9.80665 * 0.593, 0.1)
+    print(target_v.tolist(), roll, pitch, yaw)
+    # client.moveByRollPitchYawThrottleAsync(0, 0, 0, 0.593, 0.5)
 
-    sleep(max(0, 2 / 15 - time() + t0))
-    print([*_s, r, p, y, c, 1 / (time() - t0)])
+    # sleep(max(0, 1 / 15 - time() + t0))
+    # print([*_s, r, p, y, c, 1 / (time() - t0)])
 
 client.stopRecording()
