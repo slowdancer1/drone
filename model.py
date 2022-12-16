@@ -24,8 +24,8 @@ class Model(nn.Module):
         super().__init__()
         self.stem = nn.Linear(12*16, 192, bias=False)
         self.v_proj = nn.Linear(dim_obs, 192)
-        self.drop1 = StableDropout()
-        self.drop2 = StableDropout()
+        # self.drop1 = StableDropout()
+        # self.drop2 = StableDropout()
 
         # i, j = torch.meshgrid(torch.linspace(0, 1, 12), torch.linspace(0, 1, 16))
         # rnd = torch.unbind(torch.rand(4, 192) - 0.5)
@@ -38,18 +38,18 @@ class Model(nn.Module):
         self.gru = nn.GRUCell(192, 192)
         self.fc = nn.Linear(192, dim_action, bias=False)
         self.fc.weight.data.mul_(0.01)
-        self.history = []
+        # self.history = []
         self.act = nn.LeakyReLU(0.05)
 
     def reset(self):
-        self.drop1.reset()
-        self.drop2.reset()
+        # self.drop1.reset()
+        # self.drop2.reset()
+        pass
 
     def forward(self, x: torch.Tensor, v, hx=None):
         x = self.act(self.stem(x.flatten(1)) + self.v_proj(v))
-        x = self.drop1(x)
         hx = self.gru(x, hx)
-        return self.fc(self.act(self.drop2(hx))), hx
+        return self.fc(self.act(hx)), hx
 
 
 if __name__ == '__main__':

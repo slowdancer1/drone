@@ -41,7 +41,7 @@ device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
 env.quad.grad_decay = args.grad_decay
-model = Model(7, 6)
+model = Model(7+9, 6)
 model = model.to(device)
 
 if args.resume:
@@ -119,11 +119,11 @@ for i in pbar:
         if (i + 1) % 250 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
-        # R = torch.stack([
-        #     env.quad.forward_vec,
-        #     env.quad.left_vec,
-        #     env.quad.up_vec,
-        # ], -1)
+        R = torch.stack([
+            env.quad.forward_vec,
+            env.quad.left_vec,
+            env.quad.up_vec,
+        ], -1)
         # loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
         # R = _axis_angle_rotation('Z',  tor)
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
@@ -131,9 +131,9 @@ for i in pbar:
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
         with torch.no_grad():
             state = torch.cat([
-                env.quad.v,
-                # env.quad.a,
-                target_v,
+                torch.squeeze(env.quad.v[:, None] @ R, 1),
+                torch.squeeze(target_v[:, None] @ R, 1),
+                R.flatten(1),
                 margin[:, None]
             ], -1)
 
@@ -152,7 +152,9 @@ for i in pbar:
         # mirror_act = mirror_act.clone()
         # mirror_act[:, 0] = -mirror_act[:, 0]
         # loss_cns += F.mse_loss(act, mirror_act)
-        act_buffer.append(torch.chunk(act, 2, -1))
+        
+        dp_pred, a_pred = (R @ act.reshape(-1, 3, 2)).unbind(-1)
+        act_buffer.append((dp_pred, a_pred))
         dp_target, a_pred = act_buffer.pop(0)
         a_optimal = env.step(dp_target, a_pred, ctl_dt)
 
