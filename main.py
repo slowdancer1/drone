@@ -84,8 +84,8 @@ for i in pbar:
     model.reset()
     p_history = []
     v_history = []
-    a_history = []
     a_targets = []
+    a_reals = []
     nearest_pt_history = []
     vid = []
     h = None
@@ -154,37 +154,37 @@ for i in pbar:
         # loss_cns += F.mse_loss(act, mirror_act)
         
         dp_pred, a_pred = (R @ act.reshape(-1, 3, 2)).unbind(-1)
-        act_buffer.append((dp_pred, a_pred))
-        dp_target, a_pred = act_buffer.pop(0)
-        a_optimal = env.step(dp_target, a_pred, ctl_dt)
+        act_buffer.append((dp_pred, a_pred - env.quad.v))
+        dp_pred, a_pred = act_buffer.pop(0)
+        a_real, a_optimal = env.step(dp_pred, a_pred, ctl_dt)
 
         # loss
-        v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
         with torch.no_grad():
+            v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
             speed_ratio = v_forward.div(max_speed).clamp(0, 1)
             speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
         speed_ratios.append(speed_ratio)
-        delta_v = torch.norm(env.quad.v - target_v, 2, -1)
+        delta_v = torch.norm(dp_pred / ctl_dt - target_v, 2, -1)
         loss_v += F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
 
         v_history.append(env.quad.v)
-        a_targets.append(a_pred)
-        a_history.append(a_optimal)
+        a_reals.append(a_real)
+        a_targets.append(a_optimal)
 
     p_history = torch.stack(p_history)
     v_history = torch.stack(v_history)
+    a_reals = torch.stack(a_reals)
     a_targets = torch.stack(a_targets)
-    a_history = torch.stack(a_history)
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     loss_v /= t + 1
     loss_look_ahead /= t + 1
     # loss_cns /= t + 1
 
-    loss_ctrl = F.mse_loss(a_targets, a_history)
+    loss_ctrl = F.mse_loss(a_reals, a_targets)
 
-    jerk_history = (a_history[1:] - a_history[:-1]).div(ctl_dt)
-    loss_d_acc = a_history.pow(2).sum(-1).mean()
+    jerk_history = (a_targets[1:] - a_targets[:-1]).div(ctl_dt)
+    loss_d_acc = a_targets.pow(2).sum(-1).mean()
     loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
@@ -208,7 +208,7 @@ for i in pbar:
         exit(1)
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    pbar.set_description_str(f'loss: {loss.item():.3f}')
+    pbar.set_description_str(f'loss_v: {loss_v.item():.3f}, loss_ctrl: {loss_ctrl.item():.3f}')
     optim.zero_grad()
     loss.backward()
     optim.step()
@@ -245,15 +245,15 @@ for i in pbar:
             ax.plot(p_history[:, -1, 2], label='z')
             ax.legend()
             fig_a, ax = plt.subplots()
-            a_history = a_history.cpu()
-            ax.plot(a_history[:, -1, 0], label='x')
-            ax.plot(a_history[:, -1, 1], label='y')
-            ax.plot(a_history[:, -1, 2], label='z')
+            a_reals = a_reals.cpu()
+            ax.plot(a_reals[:, -1, 0], label='x')
+            ax.plot(a_reals[:, -1, 1], label='y')
+            ax.plot(a_reals[:, -1, 2], label='z')
             ax.legend()
             writer.add_video('demo', vid, i + 1, 15)
             writer.add_figure('v_history', fig_v, i + 1)
             writer.add_figure('p_history', fig_p, i + 1)
-            writer.add_figure('a_history', fig_a, i + 1)
+            writer.add_figure('a_reals', fig_a, i + 1)
             torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
         if (i + 1) % 25 == 0:
             for k, v in scaler_q.items():

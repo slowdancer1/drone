@@ -40,4 +40,4 @@ git diff > git_diff
 echo $PY_ARGS > args
 echo " ...Done"
 
-python main.py ${PY_ARGS}
+python main.py ${PY_ARGS} |& tee output.log
