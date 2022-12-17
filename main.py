@@ -83,8 +83,6 @@ for i in pbar:
     env.reset()
     model.reset()
     p_history = []
-    v_history = []
-    a_targets = []
     a_reals = []
     nearest_pt_history = []
     vid = []
@@ -100,7 +98,6 @@ for i in pbar:
     env.quad.p[reverse_mask, 0] = 32 - env.quad.p[reverse_mask, 0]
     env.quad.forward_vec[reverse_mask, 0] = -env.quad.forward_vec[reverse_mask, 0]
 
-    # losses = defaultdict(float)
     loss_v = 0
     loss_look_ahead = 0
     # loss_cns = 0
@@ -113,7 +110,7 @@ for i in pbar:
     speed_ratios = []
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
-        p_history.append(env.quad.p_target)
+        p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())
 
         depth = torch.as_tensor(depth[:, None], device=device)
@@ -130,7 +127,7 @@ for i in pbar:
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
         with torch.no_grad():
             state = torch.cat([
-                torch.squeeze(env.quad.v_target[:, None] @ R, 1),
+                torch.squeeze(env.quad.v[:, None] @ R, 1),
                 torch.squeeze(target_v[:, None] @ R, 1),
                 R.flatten(1),
                 margin[:, None]
@@ -140,39 +137,32 @@ for i in pbar:
         x = 3 / depth.clamp_(0.01, 10) - 0.6
         x = F.max_pool2d(x, 5, 5)
         act, h = model(x, state, h)
-
+        
         dp_pred, a_pred = (R @ act.reshape(-1, 3, 2)).unbind(-1)
-        act_buffer.append((dp_pred, a_pred))
+        act_buffer.append((dp_pred, a_pred - env.quad.v))
         dp_pred, a_pred = act_buffer.pop(0)
-        a_real, a_optimal = env.step(dp_pred, a_pred, ctl_dt)
+        env.step(dp_pred, a_pred, ctl_dt)
 
         # loss
         with torch.no_grad():
-            v_forward = torch.sum(target_v_unit * env.quad.v_target, -1, True)
+            v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
             speed_ratio = v_forward.div(max_speed).clamp(0, 1)
-            speed_ratio *= torch.cosine_similarity(target_v, env.quad.v_target)[:, None]
+            speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
         speed_ratios.append(speed_ratio)
-        delta_v = torch.norm(dp_pred / ctl_dt - target_v, 2, -1)
+        delta_v = torch.norm(env.quad.v - target_v, 2, -1)
         loss_v += F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
 
-        v_history.append(env.quad.v_target)
-        a_reals.append(a_real)
-        a_targets.append(a_optimal)
+        a_reals.append(env.quad.a)
 
     p_history = torch.stack(p_history)
-    v_history = torch.stack(v_history)
     a_reals = torch.stack(a_reals)
-    a_targets = torch.stack(a_targets)
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     loss_v /= t + 1
     loss_look_ahead /= t + 1
-    # loss_cns /= t + 1
 
-    loss_ctrl = F.mse_loss(a_reals, a_targets)
-
-    jerk_history = (a_targets[1:] - a_targets[:-1]).div(ctl_dt)
-    loss_d_acc = a_targets.pow(2).sum(-1).mean()
+    jerk_history = (a_reals[1:] - a_reals[:-1]).div(ctl_dt)
+    loss_d_acc = a_reals.pow(2).sum(-1).mean()
     loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
@@ -183,7 +173,6 @@ for i in pbar:
     loss_tgt = loss_tgt.mean()
 
     loss = args.coef_v * loss_v + \
-        args.coef_ctrl * loss_ctrl + \
         args.coef_obj_avoidance * loss_obj_avoidance + \
         args.coef_look_ahead * loss_look_ahead + \
         args.coef_tgt * loss_tgt + \
@@ -196,7 +185,7 @@ for i in pbar:
         exit(1)
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    pbar.set_description_str(f'loss_v: {loss_v.item():.3f}, loss_ctrl: {loss_ctrl.item():.3f}')
+    pbar.set_description_str(f'loss: {loss.item():.3f}')
     optim.zero_grad()
     loss.backward()
     optim.step()
@@ -205,27 +194,19 @@ for i in pbar:
     with torch.no_grad():
         success = torch.all(distance > 0, 0)
         speed = torch.cat(speed_ratios, -1).max(-1).values
-        mean_speed = speed.mean().item()
         smooth_dict({
             'loss': loss.item(),
             'loss_v': loss_v.item(),
-            'loss_ctrl': loss_ctrl.item(),
             'loss_obj_avoidance': loss_obj_avoidance.item(),
             'loss_tgt': loss_tgt.item(),
             'loss_d_acc': loss_d_acc.item(),
             'loss_d_jerk': loss_d_jerk.item(),
             'success': success.sum().item() / args.batch_size,
-            'speed': mean_speed,
-            'ar': (success * speed).mean().item() * mean_speed})
+            'speed': speed.mean().item(),
+            'ar': (success * speed).mean().item()})
         log_dict = {}
         if (i + 1) % 250 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
-            fig_v, ax = plt.subplots()
-            v_history = v_history.cpu()
-            ax.plot(v_history[:, -1, 0], label='x')
-            ax.plot(v_history[:, -1, 1], label='y')
-            ax.plot(v_history[:, -1, 2], label='z')
-            ax.legend()
             fig_p, ax = plt.subplots()
             p_history = p_history.cpu()
             ax.plot(p_history[:, -1, 0], label='x')
@@ -239,7 +220,6 @@ for i in pbar:
             ax.plot(a_reals[:, -1, 2], label='z')
             ax.legend()
             writer.add_video('demo', vid, i + 1, 15)
-            writer.add_figure('v_history', fig_v, i + 1)
             writer.add_figure('p_history', fig_p, i + 1)
             writer.add_figure('a_reals', fig_a, i + 1)
             torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')

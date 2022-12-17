@@ -51,12 +51,10 @@ def g_decay(x, alpha):
 class QuadState:
     def __init__(self, batch_size, device, grad_decay=0.8) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
-        self.p_target = torch.zeros((batch_size, 3), device=device)
         self.act = torch.zeros((batch_size, 3), device=device)
         self.a = torch.zeros((batch_size, 3), device=device) \
             * torch.tensor([0.1, 0.1, 0.1], device=device)
         self.v = torch.zeros((batch_size, 3), device=device)
-        self.v_target = torch.zeros((batch_size, 3), device=device)
         self.g_std = torch.tensor([0, 0, -9.80665], device=device)
         self.dg = torch.randn((batch_size, 3), device=device) * 0.1
         self.drag = torch.rand((batch_size, 1), device=device) * 0.19 + 0.01
@@ -68,20 +66,13 @@ class QuadState:
 
     # @torch.jit.script
     def run(self, dp_pred, act_pred, ctl_dt=1/15):
-        v_target = dp_pred / ctl_dt
-        a_target = (v_target - self.v_target) / ctl_dt
-        act_optimal = a_target - self.dg + self.drag * self.v
-
         alpha = self.rate_ctl_delay ** (ctl_dt / self.rate_ctl_delay)
         self.act = act_pred * (1 - alpha) + self.act * alpha
         self.a = self.act + self.dg - self.drag * self.v
-        self.v = self.v + self.a * ctl_dt
-        self.p = self.p + self.v * ctl_dt
+        self.v = g_decay(self.v, 0.4 ** ctl_dt) + self.a * ctl_dt
+        self.p = g_decay(self.p, 0.4 ** ctl_dt) + self.v * ctl_dt
 
-        self.p_target = g_decay(self.p_target, 0.4 ** ctl_dt) + dp_pred
-        self.v_target = v_target
         self.update_state_vec(self.act)
-        return self.act, act_optimal
 
     @torch.no_grad()
     def update_state_vec(self, a_thr):
@@ -110,7 +101,7 @@ class Env:
 
     @torch.no_grad()
     def render(self, ctl_dt):
-        state = torch.cat([self.quad.p_target, self.quad.forward_vec, self.quad.up_vec], -1).cpu()
+        state = torch.cat([self.quad.p, self.quad.forward_vec, self.quad.up_vec], -1).cpu()
         return self.r.render(state.numpy(), ctl_dt)
 
     def step(self, action, a_pred, ctl_dt=1/15):
