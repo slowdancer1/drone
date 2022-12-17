@@ -100,6 +100,7 @@ for i in pbar:
     env.quad.p[reverse_mask, 0] = 32 - env.quad.p[reverse_mask, 0]
     env.quad.forward_vec[reverse_mask, 0] = -env.quad.forward_vec[reverse_mask, 0]
 
+    # losses = defaultdict(float)
     loss_v = 0
     loss_look_ahead = 0
     # loss_cns = 0
@@ -112,7 +113,7 @@ for i in pbar:
     speed_ratios = []
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
-        p_history.append(env.quad.p)
+        p_history.append(env.quad.p_target)
         nearest_pt_history.append(nearest_pt.copy())
 
         depth = torch.as_tensor(depth[:, None], device=device)
@@ -124,14 +125,12 @@ for i in pbar:
             env.quad.left_vec,
             env.quad.up_vec,
         ], -1)
-        # loss_look_ahead += 1 - F.cosine_similarity(R[:, :2, 0], env.quad.v[:, :2]).mean()
-        # R = _axis_angle_rotation('Z',  tor)
         target_v_norm = torch.norm(target_v, 2, -1, keepdim=True)
         target_v_unit = target_v / target_v_norm
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
         with torch.no_grad():
             state = torch.cat([
-                torch.squeeze(env.quad.v[:, None] @ R, 1),
+                torch.squeeze(env.quad.v_target[:, None] @ R, 1),
                 torch.squeeze(target_v[:, None] @ R, 1),
                 R.flatten(1),
                 margin[:, None]
@@ -140,34 +139,23 @@ for i in pbar:
         # normalize
         x = 3 / depth.clamp_(0.01, 10) - 0.6
         x = F.max_pool2d(x, 5, 5)
-        # states.append(state.detach())
-        # mirror_state = state.clone()
-        # mirror_state[:, [1, 3, 6]] = -mirror_state[:, [1, 3, 6]]
-        # state = torch.cat([state, mirror_state])
-        # x = torch.cat([x, torch.flip(x, (-1,))])
-        # state = (state - states_mean) / states_std
-        # depths.append(depth.clamp_(0.01, 10).detach())
         act, h = model(x, state, h)
-        # act, mirror_act = torch.chunk(act, 2)
-        # mirror_act = mirror_act.clone()
-        # mirror_act[:, 0] = -mirror_act[:, 0]
-        # loss_cns += F.mse_loss(act, mirror_act)
-        
+
         dp_pred, a_pred = (R @ act.reshape(-1, 3, 2)).unbind(-1)
-        act_buffer.append((dp_pred, a_pred - env.quad.v))
+        act_buffer.append((dp_pred, a_pred))
         dp_pred, a_pred = act_buffer.pop(0)
         a_real, a_optimal = env.step(dp_pred, a_pred, ctl_dt)
 
         # loss
         with torch.no_grad():
-            v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
+            v_forward = torch.sum(target_v_unit * env.quad.v_target, -1, True)
             speed_ratio = v_forward.div(max_speed).clamp(0, 1)
-            speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
+            speed_ratio *= torch.cosine_similarity(target_v, env.quad.v_target)[:, None]
         speed_ratios.append(speed_ratio)
         delta_v = torch.norm(dp_pred / ctl_dt - target_v, 2, -1)
         loss_v += F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
 
-        v_history.append(env.quad.v)
+        v_history.append(env.quad.v_target)
         a_reals.append(a_real)
         a_targets.append(a_optimal)
 
