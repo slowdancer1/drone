@@ -91,7 +91,7 @@ for i in pbar:
     p_target = torch.stack([
         torch.full((args.batch_size,), 32., device=device),
         torch.rand((args.batch_size,), device=device) * 12 - 6,
-        torch.full((args.batch_size,), 0., device=device)
+        torch.rand((args.batch_size,), device=device),
     ], -1)
 
     loss_v = 0

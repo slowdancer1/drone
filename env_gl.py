@@ -69,10 +69,11 @@ class QuadState:
     def run(self, act_pred, ctl_dt=1/15):
         alpha = self.rate_ctl_delay ** (ctl_dt / self.rate_ctl_delay)
         self.act = act_pred * (1 - alpha) + self.act * alpha
-        self.a = self.act + self.dg - self.drag_1 * self.v \
+        a_next = self.act + self.dg - self.drag_1 * self.v \
             - self.drag_2 * self.v * torch.norm(self.v, 2, -1, True)
-        self.v = g_decay(self.v, 0.4 ** ctl_dt) + self.a * ctl_dt
-        self.p = g_decay(self.p, 0.4 ** ctl_dt) + self.v * ctl_dt
+        self.p = g_decay(self.p, 0.4 ** ctl_dt) + self.v * ctl_dt + 0.5 * self.a * ctl_dt**2
+        self.v = g_decay(self.v, 0.4 ** ctl_dt) + (self.a + a_next) / 2 * ctl_dt
+        self.a = a_next
         self.update_state_vec(self.act)
 
     @torch.no_grad()

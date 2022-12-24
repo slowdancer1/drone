@@ -79,29 +79,27 @@ public:
         envs.resize(n_envs);
         for (int i = 0; i < n_envs; i++)
         {
-            int n_obstacles = (rd() % 20) + 21;
+            int n_obstacles = (rd() % 20) + 11;
             for (int j = 0; j < n_obstacles; j++)
             {
-                float x = float(rd()) / rd.max() * 28 + 2;
-                float y = float(rd()) / rd.max() * 10 - 5;
-                float z = float(rd()) / rd.max() * 8 - 2;
+                float x = float(rd()) / rd.max() * 24 + 4;
+                float y = float(rd()) / rd.max() * 16 - 8;
+                float z = float(rd()) / rd.max() * 5 - 1;
                 float vx = 0, vy = 0, vz = 0;
                 if (float(rd()) / rd.max() < 0.5) {
                     vx = float(rd()) / rd.max() * 2 - 1;
                     vy = float(rd()) / rd.max() * 2 - 1;
                     vz = float(rd()) / rd.max() * 2 - 1;
                 }
-                float r = float(rd()) / rd.max();
+                float r = -logf(float(rd()) / rd.max());
                 Geometry *m;
                 switch (rd() % 5)
                 {
                 case 0:
-                    r *= 2;
                 case 1:
                     m = new Cube(r + 0.1);
                     break;
                 case 2:
-                    r *= 2;
                 case 3:
                     m = new Ball(r + 0.1);
                     break;
