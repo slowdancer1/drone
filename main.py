@@ -22,7 +22,7 @@ from rotation import _axis_angle_rotation
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--num_iters', type=int, default=20000)
+parser.add_argument('--num_iters', type=int, default=50000)
 parser.add_argument('--coef_v', type=float, default=2.0)
 parser.add_argument('--coef_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
@@ -41,7 +41,7 @@ device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
 env.quad.grad_decay = args.grad_decay
-model = Model(7+9, 6)
+model = Model(7+9, 3)
 model = model.to(device)
 
 if args.resume:
@@ -89,14 +89,10 @@ for i in pbar:
     h = None
     loss_obj_avoidance = 0
     p_target = torch.stack([
-        torch.rand((args.batch_size,), device=device) * 10 + 22,
+        torch.full((args.batch_size,), 32., device=device),
         torch.rand((args.batch_size,), device=device) * 12 - 6,
-        torch.full((args.batch_size,), 0, device=device)
+        torch.rand((args.batch_size,), device=device),
     ], -1)
-    reverse_mask = torch.rand((args.batch_size,), device=device) < 0.5
-    p_target[reverse_mask, 0] = 32 - p_target[reverse_mask, 0]
-    env.quad.p[reverse_mask, 0] = 32 - env.quad.p[reverse_mask, 0]
-    env.quad.forward_vec[reverse_mask, 0] = -env.quad.forward_vec[reverse_mask, 0]
 
     loss_v = 0
     loss_look_ahead = 0
@@ -104,9 +100,7 @@ for i in pbar:
     margin = torch.rand((args.batch_size,), device=device) * 0.25
     max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 3
 
-    act_buffer = []
-    for j in range(randint(1, 3)):
-        act_buffer.append([env.quad.v.mul(0)]*2)
+    act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 3)
     speed_ratios = []
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
@@ -137,11 +131,11 @@ for i in pbar:
         x = 3 / depth.clamp_(0.01, 10) - 0.6
         x = F.max_pool2d(x, 5, 5)
         act, h = model(x, state, h)
-        
-        dp_pred, a_pred = (R @ act.reshape(-1, 3, 2)).unbind(-1)
-        act_buffer.append((dp_pred, a_pred - env.quad.v))
-        dp_pred, a_pred = act_buffer.pop(0)
-        env.step(dp_pred, a_pred, ctl_dt)
+
+        a_pred = (R @ act.unsqueeze(-1)).squeeze(-1)
+        act_buffer.append(a_pred - env.quad.v)
+        a_pred = act_buffer.pop(0)
+        env.step(a_pred, ctl_dt)
 
         # loss
         with torch.no_grad():

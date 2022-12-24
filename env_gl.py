@@ -52,12 +52,13 @@ class QuadState:
     def __init__(self, batch_size, device, grad_decay=0.8) -> None:
         self.p = torch.zeros((batch_size, 3), device=device)
         self.act = torch.zeros((batch_size, 3), device=device)
-        self.a = torch.zeros((batch_size, 3), device=device) \
+        self.a = torch.randn((batch_size, 3), device=device) \
             * torch.tensor([0.1, 0.1, 0.1], device=device)
-        self.v = torch.zeros((batch_size, 3), device=device)
+        self.v = torch.randn((batch_size, 3), device=device)
         self.g_std = torch.tensor([0, 0, -9.80665], device=device)
         self.dg = torch.randn((batch_size, 3), device=device) * 0.1
-        self.drag = torch.rand((batch_size, 1), device=device) * 0.19 + 0.01
+        self.drag_2 = torch.rand((batch_size, 1), device=device) * 0.04 + 0.01
+        self.drag_1 = torch.rand((batch_size, 1), device=device) * 0.19 + 0.01
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
         self.forward_vec = torch.zeros((batch_size, 3), device=device)
         self.forward_vec[:, 0] = 1
@@ -65,13 +66,14 @@ class QuadState:
         self.update_state_vec(self.v)
 
     # @torch.jit.script
-    def run(self, dp_pred, act_pred, ctl_dt=1/15):
+    def run(self, act_pred, ctl_dt=1/15):
         alpha = self.rate_ctl_delay ** (ctl_dt / self.rate_ctl_delay)
         self.act = act_pred * (1 - alpha) + self.act * alpha
-        self.a = self.act + self.dg - self.drag * self.v
-        self.v = g_decay(self.v, 0.4 ** ctl_dt) + self.a * ctl_dt
-        self.p = g_decay(self.p, 0.4 ** ctl_dt) + self.v * ctl_dt
-
+        a_next = self.act + self.dg - self.drag_1 * self.v \
+            - self.drag_2 * self.v * torch.norm(self.v, 2, -1, True)
+        self.p = g_decay(self.p, 0.4 ** ctl_dt) + self.v * ctl_dt + 0.5 * self.a * ctl_dt**2
+        self.v = g_decay(self.v, 0.4 ** ctl_dt) + (self.a + a_next) / 2 * ctl_dt
+        self.a = a_next
         self.update_state_vec(self.act)
 
     @torch.no_grad()
@@ -79,7 +81,7 @@ class QuadState:
         a_thr = a_thr - self.g_std
         thrust = torch.norm(a_thr, 2, -1, True)
         self.up_vec = a_thr / thrust
-        forward_vec = self.forward_vec + self.v 
+        forward_vec = self.forward_vec * 0.5 + self.v 
         forward_vec -= torch.sum(forward_vec * self.up_vec, -1, keepdim=True) * self.up_vec
         forward_vec /= torch.norm(forward_vec, 2, -1, True)
         self.forward_vec = forward_vec
@@ -104,8 +106,8 @@ class Env:
         state = torch.cat([self.quad.p, self.quad.forward_vec, self.quad.up_vec], -1).cpu()
         return self.r.render(state.numpy(), ctl_dt)
 
-    def step(self, action, a_pred, ctl_dt=1/15):
-        return self.quad.run(action, a_pred, ctl_dt)
+    def step(self, a_pred, ctl_dt=1/15):
+        return self.quad.run(a_pred, ctl_dt)
 
 
 @torch.no_grad()
