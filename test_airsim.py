@@ -24,7 +24,7 @@ args = parser.parse_args()
 
 
 device = torch.device('cpu')
-model = Model(7+9, 6).eval()
+model = Model(7+9, 3).eval()
 if args.resume:
     model.load_state_dict(torch.load(args.resume, map_location='cpu'))
 model.to(device)
@@ -58,10 +58,10 @@ waypoints = [
 # ]
 
 # # hard
-# waypoints = [
-#     [-240, -210, -2],
-#     [260, -210, -2],
-# ]
+waypoints = [
+    [-240, -210, -2],
+    [260, -210, -2],
+]
 
 client.moveByRollPitchYawThrottleAsync(0, 0, 0, 0.593, 0.1)
 client.simSetVehiclePose(Pose(
@@ -72,17 +72,17 @@ sleep(0.5)
 
 # Async methods returns Future. Call join() to wait for task to complete.
 
-client.startRecording()
-# client.setAngleRateControllerGains(AngleRateControllerGains(
-#     roll_gains=PIDGains(0.2, 0, 0.0005),
-#     pitch_gains=PIDGains(0.2, 0, 0.0005),
-#     yaw_gains=PIDGains(0.2, 0, 0.0005),
-# ))
-# client.setAngleLevelControllerGains(AngleLevelControllerGains(
-#     roll_gains=PIDGains(10., 0, 0.1),
-#     pitch_gains=PIDGains(10., 0, 0.1),
-#     yaw_gains=PIDGains(10., 0, 0.1),
-# ))
+# client.startRecording()
+client.setAngleRateControllerGains(AngleRateControllerGains(
+    roll_gains=PIDGains(0.2, 0, 0.0005),
+    pitch_gains=PIDGains(0.2, 0, 0.0005),
+    yaw_gains=PIDGains(0.2, 0, 0.0005),
+))
+client.setAngleLevelControllerGains(AngleLevelControllerGains(
+    roll_gains=PIDGains(5., 0, 0.02),
+    pitch_gains=PIDGains(5., 0, 0.02),
+    yaw_gains=PIDGains(5., 0, 0.02),
+))
 
 # states_mean = [3.62, 0, 0, 0, 0, 4.14, 0, 0, 0.125]
 # states_mean = torch.tensor([states_mean], device=device)
@@ -149,12 +149,12 @@ while True:
     _s = state[0].tolist()
 
     act, h = model(x, state, h)
-    a_pred = R @ act[0, 1::2]
+    a_pred = R @ act[0]
     a_pred = a_pred - v
     # print(act[0].tolist())
     a_pred[2] += 9.80665
     a_norm = torch.norm(a_pred)
-    forward += v
+    forward = v + forward * 0.5
     forward /= torch.norm(forward)
     yaw = torch.atan2(forward[1], forward[0])
     c, s = torch.cos(yaw), torch.sin(yaw)
@@ -167,10 +167,11 @@ while True:
     # print(_s, target_v.tolist(), roll, pitch, yaw)
     # print(pitch)
     # client.moveByRollPitchYawThrottleAsync(0, 0, 0, 0.593, 0.5)
-
-    sleep(max(0, 2 / 15 - time() + t0))
-    print([*_s, 2 / (time() - t0)])
+    to_sleep = 1 / 15 - time() + t0
+    if to_sleep > 0:
+        sleep(to_sleep)
+    print([*_s, 1 / (time() - t0)])
     # print([*_s, r, p, y, c, 1 / (time() - t0)])
 
 print('Done in', time() - t_begin, 'seconds')
-client.stopRecording()
+# client.stopRecording()
