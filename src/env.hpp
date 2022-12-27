@@ -84,7 +84,7 @@ public:
             {
                 float x = float(rd()) / rd.max() * 24 + 4;
                 float y = float(rd()) / rd.max() * 16 - 8;
-                float z = float(rd()) / rd.max() * 5 - 1;
+                float z = float(rd()) / rd.max() * 5;
                 float vx = 0, vy = 0, vz = 0;
                 if (float(rd()) / rd.max() < 0.5) {
                     vx = float(rd()) / rd.max() * 2 - 1;
@@ -149,21 +149,18 @@ public:
             for (auto &ball : envs[i])
             {
                 ball.update(ctl_dt);
-            }
-            for (auto &ball : envs[i])
-            {
                 Vector3f pt = ball.nearestPt(camera_p);
                 Vector3f cam2pt = pt - camera_p;
-                float distance = cam2pt.norm();
-                if (distance < nearest_distance)
-                {
-                    nearest_pt_ptr(i, 0) = pt.x;
-                    nearest_pt_ptr(i, 1) = pt.y;
-                    nearest_pt_ptr(i, 2) = pt.z;
-                    nearest_distance = distance;
-                }
                 float forward_distance = cam2pt.dot(camera_f);
-                if (0 < forward_distance && forward_distance < 10 && distance < 10) {
+                float distance = cam2pt.norm();
+                if (-1 < forward_distance && forward_distance < 10 && distance < 10) {
+                    if (distance < nearest_distance)
+                    {
+                        nearest_pt_ptr(i, 0) = pt.x;
+                        nearest_pt_ptr(i, 1) = pt.y;
+                        nearest_pt_ptr(i, 2) = pt.z;
+                        nearest_distance = distance;
+                    }
                     ball.draw();
                 }
             }

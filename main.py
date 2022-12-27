@@ -22,12 +22,12 @@ from rotation import _axis_angle_rotation
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--num_iters', type=int, default=50000)
-parser.add_argument('--coef_v', type=float, default=2.0)
+parser.add_argument('--num_iters', type=int, default=10000)
+parser.add_argument('--coef_v', type=float, default=5.0)
 parser.add_argument('--coef_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
 parser.add_argument('--coef_look_ahead', type=float, default=0.)
-parser.add_argument('--coef_tgt', type=float, default=1.)
+parser.add_argument('--coef_tgt', type=float, default=0.)
 parser.add_argument('--coef_d_acc', type=float, default=0.1)
 parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 # parser.add_argument('--coef_cns', type=float, default=0.0)
@@ -40,7 +40,6 @@ print(args)
 device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
-env.quad.grad_decay = args.grad_decay
 model = Model(7+9, 3)
 model = model.to(device)
 
@@ -82,6 +81,7 @@ for i in pbar:
     t0 = time.time()
     env.reset()
     model.reset()
+    env.quad.grad_decay = args.grad_decay
     p_history = []
     a_reals = []
     nearest_pt_history = []
@@ -188,6 +188,7 @@ for i in pbar:
     with torch.no_grad():
         success = torch.all(distance > 0, 0)
         speed = torch.cat(speed_ratios, -1).max(-1).values
+        _success = success.sum().item() / args.batch_size
         smooth_dict({
             'loss': loss.item(),
             'loss_v': loss_v.item(),
@@ -195,9 +196,9 @@ for i in pbar:
             'loss_tgt': loss_tgt.item(),
             'loss_d_acc': loss_d_acc.item(),
             'loss_d_jerk': loss_d_jerk.item(),
-            'success': success.sum().item() / args.batch_size,
+            'success': _success,
             'speed': speed.mean().item(),
-            'ar': (success * speed).mean().item()})
+            'ar': (success * speed).mean().item() * _success})
         log_dict = {}
         if (i + 1) % 250 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]

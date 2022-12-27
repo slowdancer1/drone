@@ -64,6 +64,7 @@ class QuadState:
         self.forward_vec[:, 0] = 1
         self.real_ratio = torch.rand_like(self.v[:, :1])
         self.update_state_vec(self.v)
+        self.grad_decay = 0.4
 
     # @torch.jit.script
     def run(self, act_pred, ctl_dt=1/15):
@@ -71,8 +72,8 @@ class QuadState:
         self.act = act_pred * (1 - alpha) + self.act * alpha
         a_next = self.act + self.dg - self.drag_1 * self.v \
             - self.drag_2 * self.v * torch.norm(self.v, 2, -1, True)
-        self.p = g_decay(self.p, 0.4 ** ctl_dt) + self.v * ctl_dt + 0.5 * self.a * ctl_dt**2
-        self.v = g_decay(self.v, 0.4 ** ctl_dt) + (self.a + a_next) / 2 * ctl_dt
+        self.p = g_decay(self.p, self.grad_decay ** ctl_dt) + self.v * ctl_dt + 0.5 * self.a * ctl_dt**2
+        self.v = g_decay(self.v, self.grad_decay ** ctl_dt) + (self.a + a_next) / 2 * ctl_dt
         self.a = a_next
         self.update_state_vec(self.act)
 
