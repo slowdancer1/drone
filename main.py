@@ -27,7 +27,7 @@ parser.add_argument('--coef_v', type=float, default=5.0)
 parser.add_argument('--coef_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
 parser.add_argument('--coef_look_ahead', type=float, default=0.)
-parser.add_argument('--coef_tgt', type=float, default=0.)
+parser.add_argument('--coef_tgt', type=float, default=1.)
 parser.add_argument('--coef_d_acc', type=float, default=0.1)
 parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 # parser.add_argument('--coef_cns', type=float, default=0.0)
@@ -83,6 +83,8 @@ for i in pbar:
     model.reset()
     env.quad.grad_decay = args.grad_decay
     p_history = []
+    v_history = []
+    target_v_history = []
     a_reals = []
     nearest_pt_history = []
     vid = []
@@ -95,12 +97,11 @@ for i in pbar:
     ], -1)
 
     loss_v = 0
-    loss_look_ahead = 0
     # loss_cns = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.25
-    max_speed = torch.rand((args.batch_size, 1), device=device) * 9 + 3
+    max_speed = torch.rand((args.batch_size, 1), device=device) * 6 + 6
 
-    act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 3)
+    act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 2)
     speed_ratios = []
     for t in range(150):
         color, depth, nearest_pt = env.render(ctl_dt)
@@ -143,17 +144,25 @@ for i in pbar:
             speed_ratio = v_forward.div(max_speed).clamp(0, 1)
             speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
         speed_ratios.append(speed_ratio)
-        delta_v = torch.norm(env.quad.v - target_v, 2, -1)
-        loss_v += F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
 
         a_reals.append(env.quad.a)
+        v_history.append(env.quad.v)
+        target_v_history.append(target_v)
 
     p_history = torch.stack(p_history)
     a_reals = torch.stack(a_reals)
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
-    loss_v /= t + 1
-    loss_look_ahead /= t + 1
+    v_history = torch.stack(v_history)
+    target_v_history = torch.stack(target_v_history)
+    T, B, _ = v_history.shape
+    v_history_cum = torch.cumsum(torch.cat([
+        torch.zeros((1, B, 3), device=device),
+        v_history,
+        v_history.detach()[-1:].repeat(14, 1, 1)]), 0)
+    v_history_avg = (v_history_cum[15:] - v_history_cum[:-15]) / 15
+    delta_v = torch.norm(v_history_avg - target_v_history, 2, -1)
+    loss_v = F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
 
     jerk_history = (a_reals[1:] - a_reals[:-1]).div(ctl_dt)
     loss_d_acc = a_reals.pow(2).sum(-1).mean()
@@ -161,14 +170,14 @@ for i in pbar:
 
     distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
     loss_obj_avoidance = barrier(distance)
-    loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), reduction='none')
+    loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), beta=0.05, reduction='none')
     loss_tgt, loss_tgt_ind = loss_tgt.sum(-1).min(0)
-    loss_tgt[loss_tgt_ind == 149] = loss_tgt.detach()[loss_tgt_ind == 149]
+    invalid_mask = (loss_tgt_ind == 149) | (loss_tgt > 1)
+    loss_tgt[invalid_mask] = loss_tgt.detach()[invalid_mask]
     loss_tgt = loss_tgt.mean()
 
     loss = args.coef_v * loss_v + \
         args.coef_obj_avoidance * loss_obj_avoidance + \
-        args.coef_look_ahead * loss_look_ahead + \
         args.coef_tgt * loss_tgt + \
         args.coef_d_acc * loss_d_acc + \
         args.coef_d_jerk * loss_d_jerk

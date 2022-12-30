@@ -82,7 +82,7 @@ class QuadState:
         a_thr = a_thr - self.g_std
         thrust = torch.norm(a_thr, 2, -1, True)
         self.up_vec = a_thr / thrust
-        forward_vec = self.forward_vec * 0.5 + self.v 
+        forward_vec = self.forward_vec + self.v + self.a * 0.2
         forward_vec -= torch.sum(forward_vec * self.up_vec, -1, keepdim=True) * self.up_vec
         forward_vec /= torch.norm(forward_vec, 2, -1, True)
         self.forward_vec = forward_vec
