@@ -100,14 +100,14 @@ public:
     Cone(float r) : r(r) {};
     void draw()
     {
-        glutSolidCone(r, 10, 8, 1);
+        glutSolidCone(r, 100, 8, 1);
     }
     Vector3f nearestPt(Vector3f const &p)
     {
         Vector3f _p = p;
         if (_p.z < 0) _p.z = 0;
-        if (_p.z > 10) _p.z = 10;
-        float _r = r * (1 - _p.z / 10);
+        if (_p.z > 100) _p.z = 100;
+        float _r = r * (1 - _p.z / 100);
         float norm = sqrtf(_p.x * _p.x + _p.y * _p.y);
         _p.x = _p.x / norm * fminf(norm - 0.001, _r);
         _p.y = _p.y / norm * fminf(norm - 0.001, _r);

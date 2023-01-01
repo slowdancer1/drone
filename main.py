@@ -22,8 +22,8 @@ from rotation import _axis_angle_rotation
 parser = argparse.ArgumentParser()
 parser.add_argument('--resume', default=None)
 parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--num_iters', type=int, default=10000)
-parser.add_argument('--coef_v', type=float, default=5.0)
+parser.add_argument('--num_iters', type=int, default=100000)
+parser.add_argument('--coef_v', type=float, default=2.0)
 parser.add_argument('--coef_ctrl', type=float, default=1.0)
 parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
 parser.add_argument('--coef_look_ahead', type=float, default=0.)
@@ -58,7 +58,7 @@ def smooth_dict(ori_dict):
 
 
 def barrier(x: torch.Tensor):
-    x = x.clamp_max(1)
+    x = x.mul(2).clamp_max(1)
     return torch.where(x > 0.01, -torch.log(x), -100. * (x - 0.01) + 4.60517).mean()
     clamp_min = 0.02
     val = clamp_min - math.log(clamp_min)
@@ -91,19 +91,19 @@ for i in pbar:
     h = None
     loss_obj_avoidance = 0
     p_target = torch.stack([
-        torch.full((args.batch_size,), 32., device=device),
-        torch.rand((args.batch_size,), device=device) * 12 - 6,
+        torch.full((args.batch_size,), 24, device=device),
+        torch.rand((args.batch_size,), device=device) * 6 - 3,
         torch.rand((args.batch_size,), device=device),
     ], -1)
 
     loss_v = 0
     # loss_cns = 0
     margin = torch.rand((args.batch_size,), device=device) * 0.25
-    max_speed = torch.rand((args.batch_size, 1), device=device) * 6 + 6
+    max_speed = torch.rand((args.batch_size, 1), device=device) * 4 + 4
 
     act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 2)
     speed_ratios = []
-    for t in range(150):
+    for t in range(120):
         color, depth, nearest_pt = env.render(ctl_dt)
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())

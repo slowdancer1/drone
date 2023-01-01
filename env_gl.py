@@ -54,14 +54,14 @@ class QuadState:
         self.act = torch.zeros((batch_size, 3), device=device)
         self.a = torch.randn((batch_size, 3), device=device) \
             * torch.tensor([0.1, 0.1, 0.1], device=device)
-        self.v = torch.randn((batch_size, 3), device=device)
+        self.v = torch.randn((batch_size, 3), device=device) \
+            + torch.tensor([2., 0, 0], device=device)
         self.g_std = torch.tensor([0, 0, -9.80665], device=device)
         self.dg = torch.randn((batch_size, 3), device=device) * 0.1
-        self.drag_2 = torch.rand((batch_size, 1), device=device) * 0.04 + 0.01
+        self.drag_2 = torch.rand((batch_size, 1), device=device) * 0.02 + 0.01
         self.drag_1 = torch.rand((batch_size, 1), device=device) * 0.19 + 0.01
         self.rate_ctl_delay = 0.075 + 0.05 * torch.rand((batch_size, 1), device=device)
-        self.forward_vec = torch.zeros((batch_size, 3), device=device)
-        self.forward_vec[:, 0] = 1
+        self.forward_vec = F.normalize(self.v, 2, -1)
         self.real_ratio = torch.rand_like(self.v[:, :1])
         self.update_state_vec(self.v)
         self.grad_decay = 0.4
@@ -82,10 +82,9 @@ class QuadState:
         a_thr = a_thr - self.g_std
         thrust = torch.norm(a_thr, 2, -1, True)
         self.up_vec = a_thr / thrust
-        forward_vec = self.forward_vec + self.v + self.a * 0.2
+        forward_vec = self.forward_vec * 5 + self.v 
         forward_vec -= torch.sum(forward_vec * self.up_vec, -1, keepdim=True) * self.up_vec
-        forward_vec /= torch.norm(forward_vec, 2, -1, True)
-        self.forward_vec = forward_vec
+        self.forward_vec = F.normalize(forward_vec, 2, -1)
         self.left_vec = torch.cross(self.up_vec, self.forward_vec)
 
 

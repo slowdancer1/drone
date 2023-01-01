@@ -79,12 +79,12 @@ public:
         envs.resize(n_envs);
         for (int i = 0; i < n_envs; i++)
         {
-            int n_obstacles = (rd() % 20) + 11;
+            int n_obstacles = (rd() % 30) + 11;
             for (int j = 0; j < n_obstacles; j++)
             {
-                float x = float(rd()) / rd.max() * 24 + 4;
+                float x = float(rd()) / rd.max() * 18 + 4;
                 float y = float(rd()) / rd.max() * 16 - 8;
-                float z = float(rd()) / rd.max() * 5;
+                float z = float(rd()) / rd.max() * 6 - 1;
                 float vx = 0, vy = 0, vz = 0;
                 if (float(rd()) / rd.max() < 0.5) {
                     vx = float(rd()) / rd.max() * 2 - 1;
@@ -93,22 +93,19 @@ public:
                 }
                 float r = -logf(float(rd()) / rd.max());
                 Geometry *m;
-                switch (rd() % 5)
+                switch (rd() % 4)
                 {
                 case 0:
-                case 1:
                     m = new Cube(r + 0.1);
                     break;
-                case 2:
-                case 3:
+                case 1:
                     m = new Ball(r + 0.1);
-                    break;
-                case 4:
-                    m = new Cone(r / 4 + 0.1);
-                    z = -1;
                     break;
 
                 default:
+                    m = new Cone(r / 4 + 0.1);
+                    z = -1;
+                    vz = 0;
                     break;
                 }
                 envs[i].emplace_back(m, Vector3f{x, y, z}, Vector3f{vx, vy, vz});
