@@ -25,8 +25,7 @@ parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--num_iters', type=int, default=100000)
 parser.add_argument('--coef_v', type=float, default=2.0)
 parser.add_argument('--coef_ctrl', type=float, default=1.0)
-parser.add_argument('--coef_obj_avoidance', type=float, default=10.)
-parser.add_argument('--coef_v_pred', type=float, default=5.)
+parser.add_argument('--coef_obj_avoidance', type=float, default=5.)
 parser.add_argument('--coef_look_ahead', type=float, default=0.)
 parser.add_argument('--coef_tgt', type=float, default=1.)
 parser.add_argument('--coef_d_acc', type=float, default=0.1)
@@ -41,7 +40,7 @@ print(args)
 device = torch.device('cuda')
 
 env = Env(args.batch_size, 80, 60, device)
-model = Model(7+9-3, 3+3)
+model = Model(7+9, 3)
 model = model.to(device)
 
 if args.resume:
@@ -86,7 +85,6 @@ for i in pbar:
     p_history = []
     v_history = []
     target_v_history = []
-    v_preds = []
     a_reals = []
     nearest_pt_history = []
     vid = []
@@ -124,21 +122,19 @@ for i in pbar:
         target_v = target_v_unit * torch.min(target_v_norm, max_speed)
         with torch.no_grad():
             state = torch.cat([
-                # torch.squeeze(env.quad.v[:, None] @ R, 1),
+                torch.squeeze(env.quad.v[:, None] @ R, 1),
                 torch.squeeze(target_v[:, None] @ R, 1),
                 R.flatten(1),
                 margin[:, None]
             ], -1)
 
         # normalize
-        depth.masked_fill_(torch.rand_like(depth) < 0.9, 10)
         x = 3 / depth.clamp_(0.01, 10) - 0.6
         x = F.max_pool2d(x, 5, 5)
         act, h = model(x, state, h)
 
-        act = act.reshape(-1, 3, 2)
-        a_pred, v_pred = (R @ act).unbind(-1)
-        act_buffer.append(a_pred - v_pred)
+        a_pred = (R @ act.unsqueeze(-1)).squeeze(-1)
+        act_buffer.append(a_pred - env.quad.v)
         a_pred = act_buffer.pop(0)
         env.step(a_pred, ctl_dt)
 
@@ -152,15 +148,12 @@ for i in pbar:
         a_reals.append(env.quad.a)
         v_history.append(env.quad.v)
         target_v_history.append(target_v)
-        v_preds.append(v_pred)
 
     p_history = torch.stack(p_history)
     a_reals = torch.stack(a_reals)
     nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
 
     v_history = torch.stack(v_history)
-    v_preds = torch.stack(v_preds)
-    loss_v_pred = F.mse_loss(v_preds, v_history.detach())
     target_v_history = torch.stack(target_v_history)
     T, B, _ = v_history.shape
     v_history_cum = torch.cumsum(torch.cat([
@@ -175,8 +168,14 @@ for i in pbar:
     loss_d_acc = a_reals.pow(2).sum(-1).mean()
     loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
 
-    distance = torch.norm(p_history - nearest_pt_history, 2, -1) - margin
-    loss_obj_avoidance = barrier(distance)
+    vec_to_pt = nearest_pt_history - p_history
+    distance = torch.norm(vec_to_pt, 2, -1)
+    dir_to_pt = vec_to_pt.detach() / (distance.detach() + 1e-5)[..., None]
+    v_distance = torch.sum(v_history * dir_to_pt, -1, True)
+    pts = torch.linspace(0, ctl_dt, 10, device=device)
+    distance = distance - margin
+    loss_obj_avoidance = barrier(distance[..., None] - v_distance * pts)
+
     loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), beta=0.05, reduction='none')
     loss_tgt, loss_tgt_ind = loss_tgt.sum(-1).min(0)
     invalid_mask = (loss_tgt_ind == 149) | (loss_tgt > 1)
@@ -184,7 +183,6 @@ for i in pbar:
     loss_tgt = loss_tgt.mean()
 
     loss = args.coef_v * loss_v + \
-        args.coef_v_pred * loss_v_pred + \
         args.coef_obj_avoidance * loss_obj_avoidance + \
         args.coef_tgt * loss_tgt + \
         args.coef_d_acc * loss_d_acc + \
@@ -209,7 +207,6 @@ for i in pbar:
         smooth_dict({
             'loss': loss.item(),
             'loss_v': loss_v.item(),
-            'loss_v_pred': loss_v_pred.item(),
             'loss_obj_avoidance': loss_obj_avoidance.item(),
             'loss_tgt': loss_tgt.item(),
             'loss_d_acc': loss_d_acc.item(),
