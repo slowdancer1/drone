@@ -73,14 +73,24 @@ public:
         glEnable(GL_DEPTH_TEST); //打开深度测试
     };
 
-    void set_obstacles()
+    void set_obstacles(py::array_t<float_t> p_target)
     {
+        auto p=p_target.unchecked<2>();
         envs.clear();
         envs.resize(n_envs);
-        for (int i = 0; i < n_envs; i++)
+        for (int i = 0; i < n_envs/4; i++)
         {
+            Geometry *d;
+            for (int j = 0; j < 4; j++)
+            {
+                d = new Cone(0.1, 0.1);
+                int k = i + j * n_envs / 4;
+                envs[k].emplace_back(d, 
+                    Vector3f{p(k,0), p(k,1), p(k,2)},
+                    Vector3f{0.0,0.0,0.0});
+            }
             int n_obstacles = (rd() % 30) + 11;
-            for (int j = 0; j < n_obstacles; j++)
+            for (int j = 1; j < n_obstacles; j++)
             {
                 float x = float(rd()) / rd.max() * 18 + 4;
                 float y = float(rd()) / rd.max() * 16 - 8;
@@ -92,29 +102,33 @@ public:
                     vz = float(rd()) / rd.max() * 2 - 1;
                 }
                 float r = -logf(float(rd()) / rd.max());
-                Geometry *m;
-                switch (rd() % 4)
+                for (int k = 0; k < 4; k++)
                 {
-                case 0:
-                    m = new Cube(r + 0.1);
-                    break;
-                case 1:
-                    m = new Ball(r + 0.1);
-                    break;
+                    Geometry *m;
+                    switch (rd() % 4)
+                    {
+                    case 0:
+                        m = new Cube(r + 0.1);
+                        break;
+                    case 1:
+                        m = new Ball(r + 0.1);
+                        break;
 
-                default:
-                    m = new Cone(r / 4 + 0.1);
-                    z = -1;
-                    vz = 0;
-                    break;
+                    default:
+                        m = new Cone(r / 4 + 0.1, 100);
+                        z = -1;
+                        vz = 0;
+                        break;
+                    }
+                    int p = i + k*n_envs/4;
+                    envs[p].emplace_back(m, Vector3f{x, y, z}, Vector3f{vx, vy, vz});
                 }
-                envs[i].emplace_back(m, Vector3f{x, y, z}, Vector3f{vx, vy, vz});
             }
         }
     };
 
     std::tuple<py::array_t<uint8_t>, py::array_t<float_t>, py::array_t<float_t>> render(
-        py::array_t<float_t> cameras, float ctl_dt, bool flush)
+        py::array_t<float_t> cameras, float ctl_dt, py::array_t<float_t> drone_p, bool flush)
     {
         int height = depth.shape(1);
         int width = depth.shape(3);
@@ -123,6 +137,7 @@ public:
 
         glMatrixMode(GL_PROJECTION);
         auto r = cameras.unchecked<2>();
+        auto drone_p1 = drone_p.unchecked<2>();
         auto nearest_pt_ptr = nearest_pt.mutable_unchecked<2>();
 
         auto n_envs = envs.size();
@@ -143,9 +158,11 @@ public:
             nearest_pt_ptr(i, 2) = fmin(-1, camera_p.z);
             float nearest_distance = fabs(camera_p.z - fmin(-1, camera_p.z));
 
-            for (auto &ball : envs[i])
+            for (int j=0;j<envs[i].size();j++)
             {
-                ball.update(ctl_dt);
+                auto &ball = envs[i][j];
+                if (j==0) ball.set_p(Vector3f{drone_p1(i,0),drone_p1(i,1),drone_p1(i,2)});
+                else ball.update(ctl_dt);
                 Vector3f pt = ball.nearestPt(camera_p);
                 Vector3f cam2pt = pt - camera_p;
                 float forward_distance = cam2pt.dot(camera_f);

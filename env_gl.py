@@ -8,10 +8,10 @@ import quadsim
 
 
 class EnvRenderer(quadsim.Env):
-    def render(self, cameras, ctl_dt):
+    def render(self, cameras, ctl_dt, drone_p_new):
         z_near = 0.01
         z_far = 10.0
-        color, depth, nearest_pt = super().render(cameras, ctl_dt, True)
+        color, depth, nearest_pt = super().render(cameras, ctl_dt, drone_p_new, True)
         n, h, n, w, c = color.shape
         color = np.flip(color, 1)
         color = np.transpose(color, (0, 2, 1, 3, 4)).reshape(n**2, h, w, c)
@@ -49,8 +49,9 @@ def g_decay(x, alpha):
     return x * alpha + x.detach() * (1 - alpha)
 
 class QuadState:
-    def __init__(self, batch_size, device, grad_decay=0.8) -> None:
-        self.p = torch.zeros((batch_size, 3), device=device)
+    def __init__(self, batch_size, device, drone_p, grad_decay=0.8) -> None:
+        #self.p = torch.zeros((batch_size, 3), device=device)
+        self.p = drone_p.clone()
         self.act = torch.zeros((batch_size, 3), device=device)
         self.a = torch.randn((batch_size, 3), device=device) \
             * torch.tensor([0.1, 0.1, 0.1], device=device)
@@ -95,16 +96,17 @@ class Env:
         n = int(math.sqrt(batch_size))
         assert n * n == batch_size
         self.r = EnvRenderer(n, n, width, height)
-        self.reset()
+        #self.reset()
 
-    def reset(self):
-        self.quad = QuadState(self.batch_size, self.device)
-        self.r.set_obstacles()
+    def reset(self, p_target, drone_p):
+        self.quad = QuadState(self.batch_size, self.device, drone_p)
+        self.r.set_obstacles(p_target.cpu().numpy())
 
     @torch.no_grad()
-    def render(self, ctl_dt):
+    def render(self, ctl_dt, drone_p):
         state = torch.cat([self.quad.p, self.quad.forward_vec, self.quad.up_vec], -1).cpu()
-        return self.r.render(state.numpy(), ctl_dt)
+        drone_p_new = torch.cat([drone_p[self.batch_size//2:],drone_p[:self.batch_size//2]], -1).cpu()
+        return self.r.render(state.numpy(), ctl_dt, drone_p_new.numpy())
 
     def step(self, a_pred, ctl_dt=1/15):
         return self.quad.run(a_pred, ctl_dt)

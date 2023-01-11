@@ -79,9 +79,7 @@ pbar = tqdm(range(args.num_iters), ncols=80)
 # states = []
 for i in pbar:
     t0 = time.time()
-    env.reset()
     model.reset()
-    env.quad.grad_decay = args.grad_decay
     p_history = []
     v_history = []
     target_v_history = []
@@ -90,11 +88,30 @@ for i in pbar:
     vid = []
     h = None
     loss_obj_avoidance = 0
-    p_target = torch.stack([
-        torch.full((args.batch_size,), 24, device=device),
-        torch.rand((args.batch_size,), device=device) * 6 - 3,
-        torch.rand((args.batch_size,), device=device),
+    target0 = torch.stack([
+        torch.full((args.batch_size//4,), 24, device=device),
+        torch.rand((args.batch_size//4,), device=device) * 6 - 6,
+        torch.rand((args.batch_size//4,), device=device),
     ], -1)
+    target1 = torch.stack([
+        torch.full((args.batch_size//4,), 24, device=device),
+        torch.rand((args.batch_size//4,), device=device) * 6,
+        torch.rand((args.batch_size//4,), device=device),
+    ], -1)
+    target2 = torch.stack([
+        torch.rand((args.batch_size//4,), device=device),
+        torch.rand((args.batch_size//4,), device=device) * 6,
+        torch.rand((args.batch_size//4,), device=device),
+    ], -1)
+    target3 = torch.stack([
+        torch.rand((args.batch_size//4,), device=device),
+        torch.rand((args.batch_size//4,), device=device) * 6 - 6,
+        torch.rand((args.batch_size//4,), device=device),
+    ], -1)
+    p_target = torch.cat([target0,target1,target2,target3], 0)
+    drone_p = torch.cat([target2,target3,target0,target1], 0)
+    env.reset(p_target, drone_p)
+    env.quad.grad_decay = args.grad_decay
 
     loss_v = 0
     # loss_cns = 0
@@ -104,7 +121,7 @@ for i in pbar:
     act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 2)
     speed_ratios = []
     for t in range(120):
-        color, depth, nearest_pt = env.render(ctl_dt)
+        color, depth, nearest_pt = env.render(ctl_dt, drone_p)
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())
 
@@ -193,12 +210,6 @@ for i in pbar:
         print("loss is nan, exiting...")
         exit(1)
 
-    nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    pbar.set_description_str(f'loss: {loss.item():.3f}')
-    optim.zero_grad()
-    loss.backward()
-    optim.step()
-    sched.step()
 
     with torch.no_grad():
         success = torch.all(distance > 0, 0)
@@ -238,4 +249,10 @@ for i in pbar:
                 writer.add_scalar(k, sum(v) / len(v), i + 1)
             scaler_q.clear()
 
+    nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
+    pbar.set_description_str(f'loss: {loss.item():.3f} success: {_success:.3f}')
+    optim.zero_grad()
+    loss.backward()
+    optim.step()
+    sched.step()
 torch.save(model.state_dict(), 'last.pth')

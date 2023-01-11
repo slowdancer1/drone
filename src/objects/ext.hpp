@@ -53,6 +53,9 @@ public:
         geometry->draw();
         glPopMatrix();
     }
+    void set_p(Vector3f p_new){
+        p = p_new;
+    }
     void update(float ctl_dt){
         p = p + v * ctl_dt;
     }
@@ -96,11 +99,11 @@ public:
 class Cone : public Geometry
 {
 public:
-    float r;
-    Cone(float r) : r(r) {};
+    float r, h;
+    Cone(float r, float h) : r(r), h(h){};
     void draw()
     {
-        glutSolidCone(r, 100, 8, 1);
+        glutSolidCone(r, h, 8, 1);
     }
     Vector3f nearestPt(Vector3f const &p)
     {
