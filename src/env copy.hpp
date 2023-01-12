@@ -74,7 +74,7 @@ public:
         glEnable(GL_DEPTH_TEST); //打开深度测试
     };
 
-    void set_obstacles(py::array_t<float_t> drone_p, bool test)
+    void set_obstacles(py::array_t<float_t> drone_p)
     {
         auto p=drone_p.unchecked<2>();
         envs.clear();
@@ -105,7 +105,7 @@ public:
                 float y = float(rd()) / rd.max() * 16 - 8;
                 float z = float(rd()) / rd.max() * 6 - 1;
                 float vx = 0, vy = 0, vz = 0;
-                if (float(rd()) / rd.max() < 0.5 && !test) {
+                if (float(rd()) / rd.max() < 0.5) {
                     vx = float(rd()) / rd.max() * 2 - 1;
                     vy = float(rd()) / rd.max() * 2 - 1;
                     vz = float(rd()) / rd.max() * 2 - 1;
@@ -140,7 +140,7 @@ public:
         py::array_t<float_t> cameras, float ctl_dt, py::array_t<float_t> drone_p, bool flush)
     {
         int height = depth.shape(1);
-        int width = depth.shape(3);
+        int width = depth.shape(2);
         assert(cameras.shape(0) == n_envs);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

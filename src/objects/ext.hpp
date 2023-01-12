@@ -63,6 +63,10 @@ public:
     {
         return geometry->nearestPt(camera - p) + p;
     }
+    Vector3f get_p()
+    {
+        return p;
+    }
 };
 
 class ExtShape

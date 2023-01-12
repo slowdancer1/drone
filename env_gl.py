@@ -11,14 +11,14 @@ class EnvRenderer(quadsim.Env):
     def render(self, cameras, ctl_dt, drone_p_new):
         z_near = 0.01
         z_far = 10.0
-        color, depth, nearest_pt = super().render(cameras, ctl_dt, drone_p_new, True)
+        color, depth, nearest_pt, obstacle_pt = super().render(cameras, ctl_dt, drone_p_new, True)
         n, h, n, w, c = color.shape
         color = np.flip(color, 1)
         color = np.transpose(color, (0, 2, 1, 3, 4)).reshape(n**2, h, w, c)
         depth = np.flip(2 * depth - 1, 1)
         depth = np.transpose(depth, (0, 2, 1, 3)).reshape(n**2, h, w)
         depth = (2.0 * z_near * z_far) / (z_far + z_near - depth * (z_far - z_near))
-        return color, depth, nearest_pt
+        return color, depth, nearest_pt, obstacle_pt
 
 
 def run(self_p, self_v, self_w, g, thrust, action, ctl_dt:float, drag, rate_ctl_delay, grad_decay:float=0.8):
@@ -98,15 +98,14 @@ class Env:
         self.r = EnvRenderer(n, n, width, height)
         #self.reset()
 
-    def reset(self, p_target, drone_p):
+    def reset(self, p_target, drone_p, test=False):
         self.quad = QuadState(self.batch_size, self.device, drone_p)
-        self.r.set_obstacles(p_target.cpu().numpy())
+        self.r.set_obstacles(drone_p.cpu().numpy(), test)
 
     @torch.no_grad()
     def render(self, ctl_dt, drone_p):
         state = torch.cat([self.quad.p, self.quad.forward_vec, self.quad.up_vec], -1).cpu()
-        drone_p_new = torch.cat([drone_p[self.batch_size//2:],drone_p[:self.batch_size//2]], -1).cpu()
-        return self.r.render(state.numpy(), ctl_dt, drone_p_new.numpy())
+        return self.r.render(state.numpy(), ctl_dt, drone_p.cpu().numpy())
 
     def step(self, a_pred, ctl_dt=1/15):
         return self.quad.run(a_pred, ctl_dt)

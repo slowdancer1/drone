@@ -4,6 +4,7 @@ from collections import defaultdict
 from random import randint
 import time
 from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 from env_gl import Env
 import torch
@@ -20,8 +21,7 @@ from model import Model
 from rotation import _axis_angle_rotation
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--resume', default=None)
-parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--batch_size', type=int, default=4)
 parser.add_argument('--num_iters', type=int, default=100000)
 parser.add_argument('--coef_v', type=float, default=2.0)
 parser.add_argument('--coef_ctrl', type=float, default=1.0)
@@ -43,8 +43,7 @@ env = Env(args.batch_size, 80, 60, device)
 model = Model(7+9, 3)
 model = model.to(device)
 
-if args.resume:
-    model.load_state_dict(torch.load(args.resume, map_location=device))
+model.load_state_dict(torch.load('checkpoint0003.pth', map_location=device))
 optim = AdamW(model.parameters(), args.lr)
 sched = CosineAnnealingLR(optim, args.num_iters, args.lr * 0.01)
 
@@ -77,6 +76,9 @@ states_std = torch.tensor([states_std], device=device)
 pbar = tqdm(range(args.num_iters), ncols=80)
 # depths = []
 # states = []
+#fig = plt.figure(figsize=(20, 20))
+#plt.ion()
+#ax = plt.axes(projection='3d')
 for i in pbar:
     t0 = time.time()
     model.reset()
@@ -110,7 +112,7 @@ for i in pbar:
     ], -1)
     p_target = torch.cat([target0,target1,target2,target3], 0)
     drone_p = torch.cat([target2,target3,target0,target1], 0)
-    env.reset(p_target, drone_p)
+    env.reset(p_target, drone_p, True)
     env.quad.grad_decay = args.grad_decay
 
     loss_v = 0
@@ -120,14 +122,49 @@ for i in pbar:
 
     act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 2)
     speed_ratios = []
+
+    # plt.cla()
+    # last_p = [0,0,0,0]
+    # quad_p = [0,0,0,0]
     for t in range(120):
         color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
+        # ax.set_xlim(-10,30)
+        # ax.set_ylim(-10,10)
+        # ax.set_zlim(-5,5)
+        # #plt.axis('off')
+        # for k in range(4):
+        #     target = p_target[k].cpu().detach().numpy()
+        #     last_p[k] = quad_p[k]
+        #     quad_p[k] = env.quad.p[k].cpu().detach().numpy()
+        #     obstacle = obstacle_pt[k][4:]
+        #     if t>0:
+        #         ax.scatter(target[0], target[1], target[2], linewidths=5, marker='o', label='Target', color='green')
+        #         ax.plot([last_p[k][0],quad_p[k][0]], [last_p[k][1],quad_p[k][1]],[last_p[k][2],quad_p[k][2]], label='Drone', color='red')
+        #         ax.scatter(obstacle[:,0], obstacle[:,1], obstacle[:,2], linewidths=5, marker='x', label='Obstacle', color='black')
+
+    # for t in range(120):
+    #     color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
+    #     plt.cla()
+    #     ax.set_xlim(-10,30)
+    #     ax.set_ylim(-10,10)
+    #     ax.set_zlim(-5,5)
+    #     #plt.axis('off')
+    #     for k in range(4):
+    #         target = p_target[k].cpu().detach().numpy()
+    #         ax.scatter(target[0], target[1], target[2], linewidths=5, marker='o', label='Target', color='green')
+    #         quad_p = env.quad.p[k].cpu().detach().numpy()
+    #         ax.scatter(quad_p[0], quad_p[1], quad_p[2], linewidths=5, marker='d', label='Drone', color='red')
+    #         obstacle = obstacle_pt[k][4:]
+    #         ax.scatter(obstacle[:,0], obstacle[:,1], obstacle[:,2], linewidths=5, marker='x', label='Obstacle', color='black')
+        
+        plt.pause(0.01)
+
+
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())
 
         depth = torch.as_tensor(depth[:, None], device=device)
-        if (i + 1) % 50 == 0:
-            vid.append(color[-1].copy())
+        
         target_v = p_target - env.quad.p.detach()
         R = torch.stack([
             env.quad.forward_vec,
@@ -206,53 +243,13 @@ for i in pbar:
         args.coef_d_jerk * loss_d_jerk
         # args.coef_cns * loss_cns
     
-    if torch.isnan(loss):
-        print("loss is nan, exiting...")
-        exit(1)
-
-
-    with torch.no_grad():
-        success = torch.all(distance > 0, 0)
-        speed = torch.cat(speed_ratios, -1).max(-1).values
-        _success = success.sum().item() / args.batch_size
-        smooth_dict({
-            'loss': loss.item(),
-            'loss_v': loss_v.item(),
-            'loss_obj_avoidance': loss_obj_avoidance.item(),
-            'loss_tgt': loss_tgt.item(),
-            'loss_d_acc': loss_d_acc.item(),
-            'loss_d_jerk': loss_d_jerk.item(),
-            'success': _success,
-            'speed': speed.mean().item(),
-            'ar': (success * speed).mean().item() * _success})
-        log_dict = {}
-        if (i + 1) % 50 == 0:
-            vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
-            fig_p, ax = plt.subplots()
-            p_history = p_history.cpu()
-            ax.plot(p_history[:, -1, 0], label='x')
-            ax.plot(p_history[:, -1, 1], label='y')
-            ax.plot(p_history[:, -1, 2], label='z')
-            ax.legend()
-            fig_a, ax = plt.subplots()
-            a_reals = a_reals.cpu()
-            ax.plot(a_reals[:, -1, 0], label='x')
-            ax.plot(a_reals[:, -1, 1], label='y')
-            ax.plot(a_reals[:, -1, 2], label='z')
-            ax.legend()
-            writer.add_video('demo', vid, i + 1, 15)
-            writer.add_figure('p_history', fig_p, i + 1)
-            writer.add_figure('a_reals', fig_a, i + 1)
-            torch.save(model.state_dict(), f'checkpoint{i//1000:04d}.pth')
-        if (i + 1) % 25 == 0:
-            for k, v in scaler_q.items():
-                writer.add_scalar(k, sum(v) / len(v), i + 1)
-            scaler_q.clear()
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    pbar.set_description_str(f'loss: {loss.item():.3f} success: {_success:.3f}')
     optim.zero_grad()
     loss.backward()
     optim.step()
     sched.step()
+    #plt.ioff()
+    #plt.show()
+    #plt.pause(2)
 torch.save(model.state_dict(), 'last.pth')
