@@ -34,7 +34,7 @@ parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
 args = parser.parse_args()
-writer = SummaryWriter('.', flush_secs=1)
+writer = SummaryWriter('./log', flush_secs=1)
 print(args)
 
 device = torch.device('cuda')
