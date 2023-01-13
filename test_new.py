@@ -158,7 +158,7 @@ for i in pbar:
         #     obstacle = obstacle_pt[k][4:]
         #     ax.scatter(obstacle[:,0], obstacle[:,1], obstacle[:,2], linewidths=5, marker='x', label='Obstacle', color='black')
         
-        plt.pause(0.05)
+        #plt.pause(0.05)
 
 
         p_history.append(env.quad.p)
@@ -196,5 +196,5 @@ for i in pbar:
     
     #plt.ioff()
     #plt.show()
-    #plt.pause(2)
+    plt.pause(3)
 torch.save(model.state_dict(), 'last.pth')
