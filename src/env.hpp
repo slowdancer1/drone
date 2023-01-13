@@ -45,7 +45,7 @@ public:
         glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
         if (test)
-            glutInitWindowSize(1000, 2000);
+            glutInitWindowSize(2000, 1000);
         else
             glutInitWindowSize(width * n_envs_w, height * n_envs_h);
         glutCreateWindow("quadsim");
@@ -60,7 +60,8 @@ public:
         GLfloat white_light[] = {1.0, 1.0, 1.0, 1.0};         //灯位置(1,1,1), 最后1-开关
         GLfloat Light_Model_Ambient[] = {0.5, 0.5, 0.5, 1.0}; //环境光参数
 
-        glClearColor(0.0, 0.0, 0.0, 0.0); //背景色
+        //glClearColor(0.0, 0.0, 0.0, 0.0); //背景色
+        glClearColor(1.0, 1.0, 1.0, 1.0); //背景色
         // glShadeModel(GL_SMOOTH);          //多变性填充模式
 
         //材质属性
@@ -109,16 +110,17 @@ public:
                 float y = float(rd()) / rd.max() * 16 - 8;
                 float z = float(rd()) / rd.max() * 6 - 1;
                 float vx = 0, vy = 0, vz = 0;
-                if (float(rd()) / rd.max() < 0.5 && !test) {
+                if (float(rd()) / rd.max() < 0.5 ) {
                     vx = float(rd()) / rd.max() * 2 - 1;
                     vy = float(rd()) / rd.max() * 2 - 1;
                     vz = float(rd()) / rd.max() * 2 - 1;
                 }
                 float r = -logf(float(rd()) / rd.max());
+                int rd1 = rd()%4;
                 for (int k = 0; k < 4; k++)
                 {
                     Geometry *m;
-                    switch (rd() % 4)
+                    switch (rd1)
                     {
                     case 0:
                         m = new Cube(r + 0.1);
@@ -175,7 +177,7 @@ public:
             for (int j=0;j<envs[i].size();j++)
             {
                 auto &ball = envs[i][j];
-                if (j<4 and j!=i/n_envs) 
+                if (j<4 and j!=4*i/n_envs) 
                     ball.set_p(Vector3f{drone_p1(i%(n_envs/4)+j*n_envs/4,0),drone_p1(i%(n_envs/4)+j*n_envs/4,1),drone_p1(i%(n_envs/4)+j*n_envs/4,2)});
                 else ball.update(ctl_dt);
                 Vector3f p = ball.get_p();
@@ -208,12 +210,11 @@ public:
         }
         if (test) {
             glLoadIdentity();
-            glViewport(width*2, height*2, 1000 - width*2, 2000 - height*2);
-            gluPerspective(180 * 0.354 * 0.8, 9. / 25, 0.01f, 300.0f);
+            glViewport(width*2, height*2, 2000 - width*2, 1000 - height*2);
+            gluPerspective(180 * 0.354 * 0.3, 25. / 9, 0.01f, 300.0f);
 
-            //gluLookAt(4,30,30,20,-30,-30,0,0,1);
-            gluLookAt(-30,0,50,60,0,-50,0,0,1);
-            
+            gluLookAt(4,30,30,20,-30,-30,0,0,1);
+            //gluLookAt(-30,0,50,60,0,-50,0,0,1);
             for (int j=0;j<envs[0].size();j++)
             {
                 auto &ball = envs[0][j];

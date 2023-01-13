@@ -121,13 +121,16 @@ for i in pbar:
     act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 2)
     speed_ratios = []
     for t in range(120):
-        drone_p = env.quad.p.clone()
         color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
+        drone_p = env.quad.p.clone()
+        # print(drone_p[0],drone_p[16],drone_p[32],drone_p[48])
+        # print(obstacle_pt[0,:4],obstacle_pt[16,:4],obstacle_pt[32,:4],obstacle_pt[48,:4],)
+        # print()
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())
 
         depth = torch.as_tensor(depth[:, None], device=device)
-        if (i + 1) % 50 == 0:
+        if (i + 1) % 250 == 0:
             vid.append(color[-1].copy())
         target_v = p_target - env.quad.p.detach()
         R = torch.stack([
@@ -227,7 +230,7 @@ for i in pbar:
             'speed': speed.mean().item(),
             'ar': (success * speed).mean().item() * _success})
         log_dict = {}
-        if (i + 1) % 50 == 0:
+        if (i + 1) % 250 == 0:
             vid = np.stack(vid).transpose(0, 3, 1, 2)[None]
             fig_p, ax = plt.subplots()
             p_history = p_history.cpu()

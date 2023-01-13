@@ -126,6 +126,10 @@ for i in pbar:
     for t in range(150):
         drone_p = env.quad.p.clone()
         color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
+        # print(drone_p)
+        # print(obstacle_pt[:,:4])
+        # print()
+
         # ax.set_xlim(-10,30)
         # ax.set_ylim(-10,10)
         # ax.set_zlim(-5,5)
