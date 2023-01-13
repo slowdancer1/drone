@@ -12,7 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from tensorboardX import SummaryWriter
+
 from tqdm import tqdm
 
 import argparse
@@ -34,18 +34,15 @@ parser.add_argument('--coef_d_jerk', type=float, default=0.01)
 parser.add_argument('--lr', type=float, default=5e-4)
 parser.add_argument('--grad_decay', type=float, default=0.7)
 args = parser.parse_args()
-writer = SummaryWriter('.', flush_secs=1)
 print(args)
 
 device = torch.device('cuda')
 
-env = Env(args.batch_size, 80, 60, device)
-model = Model(7+9, 3)
+env = Env(args.batch_size, 80, 60, device, True)
+model = Model(7+9, 3).eval()
 model = model.to(device)
 
-model.load_state_dict(torch.load('checkpoint0003.pth', map_location=device))
-optim = AdamW(model.parameters(), args.lr)
-sched = CosineAnnealingLR(optim, args.num_iters, args.lr * 0.01)
+model.load_state_dict(torch.load('r4.pth', map_location=device))
 
 ctl_dt = 1 / 15
 
@@ -76,9 +73,9 @@ states_std = torch.tensor([states_std], device=device)
 pbar = tqdm(range(args.num_iters), ncols=80)
 # depths = []
 # states = []
-#fig = plt.figure(figsize=(20, 20))
-#plt.ion()
-#ax = plt.axes(projection='3d')
+# fig = plt.figure(figsize=(20, 20))
+# plt.ion()
+# ax = plt.axes(projection='3d')
 for i in pbar:
     t0 = time.time()
     model.reset()
@@ -112,7 +109,7 @@ for i in pbar:
     ], -1)
     p_target = torch.cat([target0,target1,target2,target3], 0)
     drone_p = torch.cat([target2,target3,target0,target1], 0)
-    env.reset(p_target, drone_p, True)
+    env.reset(p_target, drone_p)
     env.quad.grad_decay = args.grad_decay
 
     loss_v = 0
@@ -126,7 +123,8 @@ for i in pbar:
     # plt.cla()
     # last_p = [0,0,0,0]
     # quad_p = [0,0,0,0]
-    for t in range(120):
+    for t in range(150):
+        drone_p = env.quad.p.clone()
         color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
         # ax.set_xlim(-10,30)
         # ax.set_ylim(-10,10)
@@ -142,22 +140,21 @@ for i in pbar:
         #         ax.plot([last_p[k][0],quad_p[k][0]], [last_p[k][1],quad_p[k][1]],[last_p[k][2],quad_p[k][2]], label='Drone', color='red')
         #         ax.scatter(obstacle[:,0], obstacle[:,1], obstacle[:,2], linewidths=5, marker='x', label='Obstacle', color='black')
 
-    # for t in range(120):
-    #     color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
-    #     plt.cla()
-    #     ax.set_xlim(-10,30)
-    #     ax.set_ylim(-10,10)
-    #     ax.set_zlim(-5,5)
-    #     #plt.axis('off')
-    #     for k in range(4):
-    #         target = p_target[k].cpu().detach().numpy()
-    #         ax.scatter(target[0], target[1], target[2], linewidths=5, marker='o', label='Target', color='green')
-    #         quad_p = env.quad.p[k].cpu().detach().numpy()
-    #         ax.scatter(quad_p[0], quad_p[1], quad_p[2], linewidths=5, marker='d', label='Drone', color='red')
-    #         obstacle = obstacle_pt[k][4:]
-    #         ax.scatter(obstacle[:,0], obstacle[:,1], obstacle[:,2], linewidths=5, marker='x', label='Obstacle', color='black')
+
+        # plt.cla()
+        # ax.set_xlim(-10,30)
+        # ax.set_ylim(-10,10)
+        # ax.set_zlim(-5,5)
+        # #plt.axis('off')
+        # for k in range(4):
+        #     target = p_target[k].cpu().detach().numpy()
+        #     ax.scatter(target[0], target[1], target[2], linewidths=5, marker='o', label='Target', color='green')
+        #     quad_p = env.quad.p[k].cpu().detach().numpy()
+        #     ax.scatter(quad_p[0], quad_p[1], quad_p[2], linewidths=5, marker='d', label='Drone', color='red')
+        #     obstacle = obstacle_pt[k][4:]
+        #     ax.scatter(obstacle[:,0], obstacle[:,1], obstacle[:,2], linewidths=5, marker='x', label='Obstacle', color='black')
         
-        plt.pause(0.01)
+        plt.pause(0.05)
 
 
         p_history.append(env.quad.p)
@@ -192,63 +189,7 @@ for i in pbar:
         a_pred = act_buffer.pop(0)
         env.step(a_pred, ctl_dt)
 
-        # loss
-        with torch.no_grad():
-            v_forward = torch.sum(target_v_unit * env.quad.v, -1, True)
-            speed_ratio = v_forward.div(max_speed).clamp(0, 1)
-            speed_ratio *= torch.cosine_similarity(target_v, env.quad.v)[:, None]
-        speed_ratios.append(speed_ratio)
-
-        a_reals.append(env.quad.a)
-        v_history.append(env.quad.v)
-        target_v_history.append(target_v)
-
-    p_history = torch.stack(p_history)
-    a_reals = torch.stack(a_reals)
-    nearest_pt_history = torch.as_tensor(np.stack(nearest_pt_history), device=device)
-
-    v_history = torch.stack(v_history)
-    target_v_history = torch.stack(target_v_history)
-    T, B, _ = v_history.shape
-    v_history_cum = torch.cumsum(torch.cat([
-        torch.zeros((1, B, 3), device=device),
-        v_history,
-        v_history.detach()[-1:].repeat(14, 1, 1)]), 0)
-    v_history_avg = (v_history_cum[15:] - v_history_cum[:-15]) / 15
-    delta_v = torch.norm(v_history_avg - target_v_history, 2, -1)
-    loss_v = F.smooth_l1_loss(delta_v, torch.zeros_like(delta_v), beta=0.1)
-
-    jerk_history = (a_reals[1:] - a_reals[:-1]).div(ctl_dt)
-    loss_d_acc = a_reals.pow(2).sum(-1).mean()
-    loss_d_jerk = jerk_history.pow(2).sum(-1).mean()
-
-    vec_to_pt = nearest_pt_history - p_history
-    distance = torch.norm(vec_to_pt, 2, -1)
-    dir_to_pt = vec_to_pt.detach() / (distance.detach() + 1e-5)[..., None]
-    v_distance = torch.sum(v_history * dir_to_pt, -1, True)
-    pts = torch.linspace(0, ctl_dt, 10, device=device)
-    distance = distance - margin
-    loss_obj_avoidance = barrier(distance[..., None] - v_distance * pts)
-
-    loss_tgt = F.smooth_l1_loss(p_history, p_target.broadcast_to(p_history.shape), beta=0.05, reduction='none')
-    loss_tgt, loss_tgt_ind = loss_tgt.sum(-1).min(0)
-    invalid_mask = (loss_tgt_ind == 149) | (loss_tgt > 1)
-    loss_tgt[invalid_mask] = loss_tgt.detach()[invalid_mask]
-    loss_tgt = loss_tgt.mean()
-
-    loss = args.coef_v * loss_v + \
-        args.coef_obj_avoidance * loss_obj_avoidance + \
-        args.coef_tgt * loss_tgt + \
-        args.coef_d_acc * loss_d_acc + \
-        args.coef_d_jerk * loss_d_jerk
-        # args.coef_cns * loss_cns
     
-
-    nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    optim.zero_grad()
-    loss.backward()
-    optim.step()
-    sched.step()
     #plt.ioff()
     #plt.show()
     #plt.pause(2)

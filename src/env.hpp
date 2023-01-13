@@ -35,15 +35,19 @@ private:
     std::vector<env_t> envs;
     int n_envs_h, n_envs_w, n_envs;
     std::random_device rd;
+    bool test;
 
 public:
-    Env(int n_envs_h, int n_envs_w, int width, int height) : n_envs_h(n_envs_h), n_envs_w(n_envs_w), rgb({n_envs_h, height, n_envs_w, width, 3}), depth({n_envs_h, height, n_envs_w, width}), nearest_pt({n_envs_h * n_envs_w, 3}),obstacle_pt({n_envs_h * n_envs_w, 100, 3}), n_envs(n_envs_h * n_envs_w)
+    Env(int n_envs_h, int n_envs_w, int width, int height, bool test) : n_envs_h(n_envs_h), n_envs_w(n_envs_w), rgb({n_envs_h, height, n_envs_w, width, 3}), depth({n_envs_h, height, n_envs_w, width}), nearest_pt({n_envs_h * n_envs_w, 3}),obstacle_pt({n_envs_h * n_envs_w, 100, 3}), n_envs(n_envs_h * n_envs_w), test(test)
     {
         int argc = 0;
         glutInit(&argc, nullptr);
         glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB | GLUT_DEPTH);
         glutInitWindowPosition(0, 0);
-        glutInitWindowSize(width * n_envs_w, height * n_envs_h);
+        if (test)
+            glutInitWindowSize(1000, 2000);
+        else
+            glutInitWindowSize(width * n_envs_w, height * n_envs_h);
         glutCreateWindow("quadsim");
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -74,7 +78,7 @@ public:
         glEnable(GL_DEPTH_TEST); //打开深度测试
     };
 
-    void set_obstacles(py::array_t<float_t> drone_p, bool test)
+    void set_obstacles(py::array_t<float_t> drone_p)
     {
         auto p=drone_p.unchecked<2>();
         envs.clear();
@@ -86,7 +90,7 @@ public:
             {
                 for (int k = 0; k < 4; k++)
                 {
-                    d = new Cone(0.1, 1);
+                    d = new Cone(0.5, 0.5);
                     int q = i + j * n_envs / 4, q1 = i + k * n_envs / 4;
                     if (q == q1)
                         envs[q].emplace_back(d, 
@@ -201,6 +205,22 @@ public:
             glVertex3f(-10, 10, -1);
             glEnd();
 
+        }
+        if (test) {
+            glLoadIdentity();
+            glViewport(width*2, height*2, 1000 - width*2, 2000 - height*2);
+            gluPerspective(180 * 0.354 * 0.8, 9. / 25, 0.01f, 300.0f);
+
+            //gluLookAt(4,30,30,20,-30,-30,0,0,1);
+            gluLookAt(-30,0,50,60,0,-50,0,0,1);
+            
+            for (int j=0;j<envs[0].size();j++)
+            {
+                auto &ball = envs[0][j];
+                if (j==0) ball.set_p(Vector3f{drone_p1(0,0),drone_p1(0,1),drone_p1(0,2)});
+                ball.draw();
+                if (j==0) ball.set_p(Vector3f{-10,-10,-5});
+                }
         }
         if (flush)
             glFlush();

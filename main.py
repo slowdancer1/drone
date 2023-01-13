@@ -121,6 +121,7 @@ for i in pbar:
     act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 2)
     speed_ratios = []
     for t in range(120):
+        drone_p = env.quad.p.clone()
         color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
         p_history.append(env.quad.p)
         nearest_pt_history.append(nearest_pt.copy())

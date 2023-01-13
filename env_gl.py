@@ -90,17 +90,17 @@ class QuadState:
 
 
 class Env:
-    def __init__(self, batch_size, width, height, device='cpu') -> None:
+    def __init__(self, batch_size, width, height, device='cpu', test=False) -> None:
         self.device = device
         self.batch_size = batch_size
         n = int(math.sqrt(batch_size))
         assert n * n == batch_size
-        self.r = EnvRenderer(n, n, width, height)
+        self.r = EnvRenderer(n, n, width, height, test)
         #self.reset()
 
-    def reset(self, p_target, drone_p, test=False):
+    def reset(self, p_target, drone_p):
         self.quad = QuadState(self.batch_size, self.device, drone_p)
-        self.r.set_obstacles(drone_p.cpu().numpy(), test)
+        self.r.set_obstacles(drone_p.cpu().numpy())
 
     @torch.no_grad()
     def render(self, ctl_dt, drone_p):
