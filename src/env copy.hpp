@@ -32,13 +32,14 @@ private:
     py::array_t<float_t> depth;
     py::array_t<float_t> nearest_pt;
     py::array_t<float_t> obstacle_pt;
+    py::array_t<float_t> drone_p_history;
     std::vector<env_t> envs;
-    int n_envs_h, n_envs_w, n_envs;
+    int n_envs_h, n_envs_w, n_envs, frame;
     std::random_device rd;
     bool test;
 
 public:
-    Env(int n_envs_h, int n_envs_w, int width, int height, bool test) : n_envs_h(n_envs_h), n_envs_w(n_envs_w), rgb({n_envs_h, height, n_envs_w, width, 3}), depth({n_envs_h, height, n_envs_w, width}), nearest_pt({n_envs_h * n_envs_w, 3}),obstacle_pt({n_envs_h * n_envs_w, 100, 3}), n_envs(n_envs_h * n_envs_w), test(test)
+    Env(int n_envs_h, int n_envs_w, int width, int height, bool test) : n_envs_h(n_envs_h), n_envs_w(n_envs_w), rgb({n_envs_h, height, n_envs_w, width, 3}), depth({n_envs_h, height, n_envs_w, width}), nearest_pt({n_envs_h * n_envs_w, 3}),obstacle_pt({n_envs_h * n_envs_w, 100, 3}), n_envs(n_envs_h * n_envs_w), test(test), drone_p_history({150, 4, 3})
     {
         int argc = 0;
         glutInit(&argc, nullptr);
@@ -81,6 +82,7 @@ public:
 
     void set_obstacles(py::array_t<float_t> drone_p)
     {
+        frame = 0;
         auto p=drone_p.unchecked<2>();
         envs.clear();
         envs.resize(n_envs);
@@ -91,7 +93,7 @@ public:
             {
                 for (int k = 0; k < 4; k++)
                 {
-                    d = new Cone(0.5, 0.5);
+                    d = new Cone(0.2, 0.2);
                     int q = i + j * n_envs / 4, q1 = i + k * n_envs / 4;
                     if (q == q1)
                         envs[q].emplace_back(d, 
@@ -103,7 +105,7 @@ public:
                             Vector3f{0.0,0.0,0.0});
                 }
             }
-            int n_obstacles = (rd() % 30) + 11;
+            int n_obstacles = (rd() % 30) + 30;
             for (int j = 4; j < n_obstacles; j++)
             {
                 float x = float(rd()) / rd.max() * 18 + 4;
@@ -120,6 +122,8 @@ public:
                 for (int k = 0; k < 4; k++)
                 {
                     Geometry *m;
+                    if (test) {m = new Cone(0.2, -1000); z+=10;}
+                    else
                     switch (rd1)
                     {
                     case 0:
@@ -155,7 +159,15 @@ public:
         auto drone_p1 = drone_p.unchecked<2>();
         auto nearest_pt_ptr = nearest_pt.mutable_unchecked<2>();
         auto obstacle_pt_ptr = obstacle_pt.mutable_unchecked<3>();
+        auto drone_p_history_ptr = drone_p_history.mutable_unchecked<3>();
 
+        for (int i=0; i<4; i++)
+            for (int j=0;  j<3; j++)
+            if (frame%2==0)
+                drone_p_history_ptr(frame, i ,j) = drone_p1(i, j);
+            else
+                drone_p_history_ptr(frame, i ,j) = drone_p_history_ptr(frame-1, i ,j);
+        frame++;
         auto n_envs = envs.size();
         for (int i = 0; i < cameras.shape(0); i++)
         {
@@ -211,16 +223,38 @@ public:
         if (test) {
             glLoadIdentity();
             glViewport(width*2, height*2, 2000 - width*2, 1000 - height*2);
-            gluPerspective(180 * 0.354 * 0.3, 25. / 12, 0.01f, 300.0f);
+            gluPerspective(180 * 0.354 * 0.1, 25. / 12, 0.01f, 220.0f);
 
-            gluLookAt(4,30,30,20,-30,-30,0,0,1);
             //gluLookAt(-30,0,50,60,0,-50,0,0,1);
+            //gluLookAt(4,30,30,20,-30,-30,0,0,1);
+            gluLookAt(12,50,200,12,-20,-60,0,0,0.5);
             for (int j=0;j<envs[0].size();j++)
             {
                 auto &ball = envs[0][j];
                 if (j==0) ball.set_p(Vector3f{drone_p1(0,0),drone_p1(0,1),drone_p1(0,2)});
                 ball.draw();
                 if (j==0) ball.set_p(Vector3f{-10,-10,-5});
+                }
+        }
+
+        if (test && frame==150) {
+            glLoadIdentity();
+            glViewport(width*2, height*2, 2000 - width*2, 1000 - height*2);
+            gluPerspective(180 * 0.354 * 0.3, 25. / 12, 0.01f, 300.0f);
+
+            gluLookAt(4,30,30,20,-30,-30,0,0,1);
+            //gluLookAt(-30,0,50,60,0,-50,0,0,1);
+            for (int i=0; i<frame; i++)
+                for (int j=0; j<4; j++)
+                    {
+                        auto &ball = envs[0][j];
+                        ball.set_p(Vector3f{drone_p_history_ptr(i ,j, 0),drone_p_history_ptr(i ,j, 1),drone_p_history_ptr(i ,j, 2)});
+                        ball.draw();
+                    }
+            for (int j=4;j<envs[0].size();j++)
+            {
+                auto &ball = envs[0][j];
+                ball.draw();
                 }
         }
         if (flush)

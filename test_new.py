@@ -197,4 +197,3 @@ for i in pbar:
     #plt.ioff()
     #plt.show()
     plt.pause(3)
-torch.save(model.state_dict(), 'last.pth')

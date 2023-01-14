@@ -58,7 +58,7 @@ public:
         GLfloat mat_specular[] = {1.0, 1.0, 1.0, 1.0}; //镜面反射参数
         GLfloat mat_shininess[] = {50.0};              //高光指数
         GLfloat light_position[] = {-1.0, -1.0, 5.0, 0.0};
-        GLfloat white_light[] = {0.4, 0.4, 0.4, 1.0};         //灯位置(1,1,1), 最后1-开关
+        GLfloat white_light[] = {0.5, 0.5, 0.5, 1.0};         //灯位置(1,1,1), 最后1-开关
         GLfloat Light_Model_Ambient[] = {0.3, 0.5, 0.5, 1.0}; //环境光参数
 
         //glClearColor(0.0, 0.0, 0.0, 0.0); //背景色
@@ -93,7 +93,7 @@ public:
             {
                 for (int k = 0; k < 4; k++)
                 {
-                    d = new Cone(0.5, 0.5);
+                    d = new Cone(0.2, 0.2);
                     int q = i + j * n_envs / 4, q1 = i + k * n_envs / 4;
                     if (q == q1)
                         envs[q].emplace_back(d, 
@@ -105,7 +105,7 @@ public:
                             Vector3f{0.0,0.0,0.0});
                 }
             }
-            int n_obstacles = (rd() % 30) + 11;
+            int n_obstacles = (rd() % 30) + 30;
             for (int j = 4; j < n_obstacles; j++)
             {
                 float x = float(rd()) / rd.max() * 18 + 4;
@@ -122,6 +122,8 @@ public:
                 for (int k = 0; k < 4; k++)
                 {
                     Geometry *m;
+                    if (test) {m = new Cone(0.2, -1000); z+=10;}
+                    else
                     switch (rd1)
                     {
                     case 0:
@@ -161,10 +163,7 @@ public:
 
         for (int i=0; i<4; i++)
             for (int j=0;  j<3; j++)
-            if (frame%2==0)
                 drone_p_history_ptr(frame, i ,j) = drone_p1(i, j);
-            else
-                drone_p_history_ptr(frame, i ,j) = drone_p_history_ptr(frame-1, i ,j);
         frame++;
         auto n_envs = envs.size();
         for (int i = 0; i < cameras.shape(0); i++)
@@ -218,25 +217,48 @@ public:
             glEnd();
 
         }
+        // if (test) {
+        //     glLoadIdentity();
+        //     glViewport(width*2, height*2, 2000 - width*2, 1000 - height*2);
+        //     gluPerspective(180 * 0.354 * 0.1, 25. / 12, 0.01f, 220.0f);
+
+        //     //gluLookAt(-30,0,50,60,0,-50,0,0,1);
+        //     //gluLookAt(4,30,30,20,-30,-30,0,0,1);
+        //     gluLookAt(12,50,200,12,-20,-60,0,0,0.5);
+        //     for (int j=0;j<envs[0].size();j++)
+        //     {
+        //         auto &ball = envs[0][j];
+        //         if (j==0) ball.set_p(Vector3f{drone_p1(0,0),drone_p1(0,1),drone_p1(0,2)});
+        //         ball.draw();
+        //         if (j==0) ball.set_p(Vector3f{-10,-10,-5});
+        //         }
+        // }
         if (test) {
             glLoadIdentity();
             glViewport(width*2, height*2, 2000 - width*2, 1000 - height*2);
-            gluPerspective(180 * 0.354 * 0.3, 25. / 12, 0.01f, 300.0f);
+            gluPerspective(180 * 0.354 * 0.1, 25. / 12, 0.01f, 220.0f);
 
-            gluLookAt(4,30,30,20,-30,-30,0,0,1);
             //gluLookAt(-30,0,50,60,0,-50,0,0,1);
-            for (int i=0; i<frame; i++)
-                for (int j=0; j<4; j++)
-                    {
-                        auto &ball = envs[0][j];
-                        ball.set_p(Vector3f{drone_p_history_ptr(i ,j, 0),drone_p_history_ptr(i ,j, 1),drone_p_history_ptr(i ,j, 2)});
-                        ball.draw();
-                    }
+            //gluLookAt(4,30,30,20,-30,-30,0,0,1);
+            gluLookAt(12,50,200,12,-20,-60,0,0,0.5);
+
             for (int j=4;j<envs[0].size();j++)
             {
                 auto &ball = envs[0][j];
                 ball.draw();
                 }
+            glLineWidth(5.0); 
+
+            for (int j=0; j<4; j++)
+            {
+                glBegin(GL_LINE_STRIP);  
+
+                glColor4f(1.0, 0.0, 0.0, 1.0);        
+                for (int i=0; i<frame; i++)
+                        glVertex3f(drone_p_history_ptr(i ,j, 0),drone_p_history_ptr(i ,j, 1),drone_p_history_ptr(i ,j, 2));
+                glEnd();
+                
+            }
         }
         if (flush)
             glFlush();
