@@ -74,7 +74,7 @@ states_mean = torch.tensor([states_mean], device=device)
 states_std = [2.770, 0.367, 0.343, 0.080, 0.240, 4.313, 0.396, 0.327, 0.073]
 states_std = torch.tensor([states_std], device=device)
 
-pbar = tqdm(range(args.num_iters), ncols=80)
+pbar = tqdm(range(args.num_iters), ncols=120)
 # depths = []
 # states = []
 for i in pbar:
@@ -120,8 +120,13 @@ for i in pbar:
 
     act_buffer = [torch.zeros_like(env.quad.v)] * randint(1, 2)
     speed_ratios = []
+    collide_drone = np.zeros((64))
     for t in range(120):
         color, depth, nearest_pt, obstacle_pt = env.render(ctl_dt, drone_p)
+        for j in range(args.batch_size):
+            for k in range(4):
+                if torch.norm(torch.tensor(obstacle_pt[j][k]).cuda() - drone_p[j], 2, -1) < margin[j]:
+                    collide_drone[j] = 1
         drone_p = env.quad.p.clone()
         # print(drone_p[0],drone_p[16],drone_p[32],drone_p[48])
         # print(obstacle_pt[0,:4],obstacle_pt[16,:4],obstacle_pt[32,:4],obstacle_pt[48,:4],)
@@ -254,7 +259,8 @@ for i in pbar:
             scaler_q.clear()
 
     nn.utils.clip_grad.clip_grad_norm_(model.parameters(), 0.01)
-    pbar.set_description_str(f'loss: {loss.item():.3f} success: {_success:.3f}')
+    collide_drone = collide_drone.sum() / args.batch_size
+    pbar.set_description_str(f'loss: {loss.item():.3f} success: {_success:.3f} collide_drone: {collide_drone:.3f}')
     optim.zero_grad()
     loss.backward()
     optim.step()

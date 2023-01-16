@@ -105,7 +105,8 @@ public:
                             Vector3f{0.0,0.0,0.0});
                 }
             }
-            int n_obstacles = (rd() % 30) + 30;
+            int n_obstacles = (rd() % 30) + 12;
+            if (test) n_obstacles += 20;
             for (int j = 4; j < n_obstacles; j++)
             {
                 float x = float(rd()) / rd.max() * 18 + 4;

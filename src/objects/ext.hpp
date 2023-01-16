@@ -92,7 +92,7 @@ public:
     Ball(float r) : r(r) {};
     void draw()
     {
-        glutSolidSphere(r, 100, 100);
+        glutSolidSphere(r, 4, 4);
     }
     Vector3f nearestPt(Vector3f const &p)
     {
@@ -107,7 +107,7 @@ public:
     Cone(float r, float h) : r(r), h(h){};
     void draw()
     {
-        glutSolidCone(r, h, 100, 100);
+        glutSolidCone(r, h, 4, 4);
     }
     Vector3f nearestPt(Vector3f const &p)
     {
